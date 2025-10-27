@@ -17,7 +17,7 @@ if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
   )
 endif()
 
-add_executable(App main.cpp webgpu-utils.cpp)
+add_executable(App main.cpp webgpu-utils.cpp application.cpp)
 
 set_target_properties(App PROPERTIES
     CXX_STANDARD 20
@@ -32,8 +32,14 @@ else()
     target_compile_options(App PRIVATE -Wall -Wextra -pedantic)
 endif()
 
-# Options that are specific to Emscripten
-if (EMSCRIPTEN)
+if (NOT EMSCRIPTEN)
+    add_subdirectory(glfw)
+else() 
+    # Options that are specific to Emscripten
+    # Create a mock 'glfw' target that just sets the `-sUSE_GLFW=3` link option:
+    add_library(glfw INTERFACE)
+    target_link_options(glfw INTERFACE -sUSE_GLFW=3) 
+    
     # Generate a full web page rather than a simple WebAssembly module
     set_target_properties(App PROPERTIES SUFFIX ".html")
     
@@ -41,8 +47,11 @@ if (EMSCRIPTEN)
     target_link_options(App PRIVATE -sASYNCIFY)
 endif()
 
+add_subdirectory(glfw3webgpu)
+
 # Include webgpu directory, to define the 'webgpu' target
 add_subdirectory(webgpu)
 
 # Add the 'webgpu' target as a dependency of our App
-target_link_libraries(App PRIVATE webgpu)
+target_link_libraries(App PRIVATE webgpu glfw glfw3webgpu)
+target_copy_webgpu_binaries(App)
