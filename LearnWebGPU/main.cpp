@@ -1,13 +1,17 @@
 #include <webgpu/webgpu.h>
 #include "webgpu-utils.h"
 
-#include <iostream>
-#include <cassert>
-#include <vector>
+#ifdef WEBGPU_BACKEND_WGPU
+#include <webgpu/wgpu.h>
+#endif //WEBGPU_BACKEND_WGPU 
 
 #ifdef __EMSCRIPTEN__
 #  include <emscripten.h>
 #endif // __EMSCRIPTEN__
+
+#include <iostream>
+#include <cassert>
+#include <vector>
 
 int main()
 {
@@ -45,6 +49,7 @@ int main()
 
     std::cout << "WGPU instance : " << instance << std::endl;
 
+    // Create the adapter
     std::cout << "Requesting adapter..." << std::endl;
 
     WGPURequestAdapterOptions adapter_options = {};
@@ -56,6 +61,7 @@ int main()
 
     inspectAdapter(adapter);
 
+    // Create the device
     std::cout << "Requesting device..." << std::endl;
 
     WGPUDeviceDescriptor device_descriptor     = {};
@@ -80,15 +86,59 @@ int main()
     wgpuAdapterRelease(adapter);
 
     auto onDeviceError = [](WGPUErrorType type, const char* message, [[maybe_unused]] void* user_data)
-        {
-            std::cout << "Uncaptured device error: type " << type;
-            if (message)
-                std::cout << " (" << message << ")";
-            std::cout << std::endl;
-        };
+    {
+        std::cout << "Uncaptured device error: type " << type;
+        if (message)
+            std::cout << " (" << message << ")";
+        std::cout << std::endl;
+    };
+
     wgpuDeviceSetUncapturedErrorCallback(device, onDeviceError, nullptr /*user_data*/);
 
     inspectDevice(device);
     
+    // Create the queue
+    WGPUQueue queue = wgpuDeviceGetQueue(device);
+
+    auto onQueueWorkDone = [](WGPUQueueWorkDoneStatus status, void* /* user_data */)
+        {
+            std::cout << "Queued work finished with status: " << status << std::endl;
+        };
+    wgpuQueueOnSubmittedWorkDone(queue, onQueueWorkDone, nullptr /* user_data */);
+
+    // Create the encoder
+    WGPUCommandEncoderDescriptor encoder_descriptor = {};
+    encoder_descriptor.nextInChain = nullptr;
+    encoder_descriptor.label = "My command encoder";
+    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, &encoder_descriptor);
+
+    wgpuCommandEncoderInsertDebugMarker(encoder, "Do one thing");
+    wgpuCommandEncoderInsertDebugMarker(encoder, "Do another thing");
+
+    // Create the command buffer
+    WGPUCommandBufferDescriptor command_buffer_descriptor = {};
+    command_buffer_descriptor.nextInChain = nullptr;
+    command_buffer_descriptor.label = "Command buffer";
+    WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder, &command_buffer_descriptor);
+    wgpuCommandEncoderRelease(encoder);
+
+    std::cout << "Submitting command..." << std::endl;
+    wgpuQueueSubmit(queue, 1, &command);
+    wgpuCommandBufferRelease(command);
+    std::cout << "Command submitted." << std::endl;
+
+    for (int i = 0; i < 5; i++)
+    {
+        std::cout << "Tick/Poll device..." << std::endl;
+    #if defined(WEBGPU_BACKEND_DAWN)
+        wgpuDeviceTick(device);
+    #elif defined(WEBGPU_BACKEND_WGPU)
+        wgpuDevicePoll(device, false, nullptr);
+    #elif defined(WEBGPU_BACKEND_EMSCRIPTEN)
+        emscripten_sleep(100);
+    #endif
+    }
+
+    wgpuQueueRelease(queue);
     wgpuDeviceRelease(device);
 }

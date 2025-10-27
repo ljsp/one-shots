@@ -53,7 +53,8 @@ WGPUAdapter requestAdapterSync(WGPUInstance instance, WGPURequestAdapterOptions 
 
     // We wait until userData.requestEnded gets true
 #ifdef __EMSCRIPTEN__
-    while (!userData.requestEnded) {
+    while (!userData.requestEnded)
+    {
         emscripten_sleep(100);
     }
 #endif // __EMSCRIPTEN__
@@ -64,24 +65,29 @@ WGPUAdapter requestAdapterSync(WGPUInstance instance, WGPURequestAdapterOptions 
 }
 
 WGPUDevice requestDeviceSync(WGPUAdapter adapter, WGPUDeviceDescriptor const* descriptor) {
-    struct UserData {
+    struct UserData 
+    {
         WGPUDevice device = nullptr;
         bool requestEnded = false;
     };
     UserData userData;
 
-    auto onDeviceRequestEnded = [](WGPURequestDeviceStatus status, WGPUDevice device, char const* message, void* pUserData) {
-        UserData& userData = *reinterpret_cast<UserData*>(pUserData);
-        if (status == WGPURequestDeviceStatus_Success) {
-            userData.device = device;
-        }
-        else {
-            std::cout << "Could not get WebGPU device: " << message << std::endl;
-        }
-        userData.requestEnded = true;
+    auto onDeviceRequestEnded = [](WGPURequestDeviceStatus status, WGPUDevice device, char const* message, void* pUserData) 
+        {
+            UserData& userData = *reinterpret_cast<UserData*>(pUserData);
+            if (status == WGPURequestDeviceStatus_Success) 
+            {
+                userData.device = device;
+            }
+            else
+            {
+                std::cout << "Could not get WebGPU device: " << message << std::endl;
+            }
+            userData.requestEnded = true;
         };
 
-    wgpuAdapterRequestDevice(
+    wgpuAdapterRequestDevice
+    (
         adapter,
         descriptor,
         onDeviceRequestEnded,
@@ -89,7 +95,8 @@ WGPUDevice requestDeviceSync(WGPUAdapter adapter, WGPUDeviceDescriptor const* de
     );
 
 #ifdef __EMSCRIPTEN__
-    while (!userData.requestEnded) {
+    while (!userData.requestEnded)
+    {
         emscripten_sleep(100);
     }
 #endif // __EMSCRIPTEN__
@@ -179,7 +186,8 @@ void inspectDevice(WGPUDevice device)
 
     std::cout << "Device features:" << std::endl;
     std::cout << std::hex;
-    for (auto f : features) {
+    for (auto f : features) 
+    {
         std::cout << " - 0x" << f << std::endl;
     }
     std::cout << std::dec;
@@ -193,7 +201,8 @@ void inspectDevice(WGPUDevice device)
     bool success = wgpuDeviceGetLimits(device, &limits);
 #endif
 
-    if (success) {
+    if (success)
+    {
         std::cout << "Device limits:" << std::endl;
         std::cout << " - maxTextureDimension1D: "                     << limits.limits.maxTextureDimension1D                     << std::endl;
         std::cout << " - maxTextureDimension2D: "                     << limits.limits.maxTextureDimension2D                     << std::endl;
