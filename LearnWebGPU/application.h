@@ -28,6 +28,8 @@ public:
     bool IsRunning();
 
 private:
+    WGPUTextureView GetNextSurfaceViewData();
+
     // We put here all the variables that are shared between init and main loop
     GLFWwindow* m_window;
     WGPUDevice  m_device;

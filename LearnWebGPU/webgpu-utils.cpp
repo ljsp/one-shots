@@ -8,7 +8,6 @@
 #  include <emscripten.h>
 #endif // __EMSCRIPTEN__
 
-
 WGPUAdapter requestAdapterSync(WGPUInstance instance, WGPURequestAdapterOptions const* options)
 {
     // A simple structure holding the local information shared with the
