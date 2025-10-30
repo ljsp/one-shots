@@ -173,7 +173,9 @@ void inspectAdapter(WGPUAdapter adapter)
     std::cout << " - backendType: 0x" << properties.backendType << std::endl;
     std::cout << std::dec;
 
+#ifndef WEBGPU_BACKEND_WGPU
     std::cout << " - compatibilityMode: " << properties.compatibilityMode << std::endl;
+#endif // !WEBGPU_BACKEND_WGPU
 }
 
 void inspectDevice(WGPUDevice device)

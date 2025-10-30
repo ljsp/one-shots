@@ -179,6 +179,7 @@ void Application::MainLoop()
     render_pass_descriptor.colorAttachmentCount = 1;
     render_pass_descriptor.colorAttachments = &render_pass_color_attachment;
     render_pass_descriptor.depthStencilAttachment = nullptr;
+    render_pass_descriptor.timestampWrites = nullptr;
 
     WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(encoder, &render_pass_descriptor);
 
@@ -206,7 +207,7 @@ void Application::MainLoop()
 #if defined(WEBGPU_BACKEND_DAWN)
     wgpuDeviceTick(m_device);
 #elif defined(WEBGPU_BACKEND_WGPU)
-    wgpuDevicePoll(device, false, nullptr);
+    wgpuDevicePoll(m_device, false, nullptr);
 #endif
 }
 
