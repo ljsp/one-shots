@@ -34,12 +34,12 @@ bool Application::Initialize()
     //Make sure the uncaptured error callback is called as soon as an error
     // occurs rather than at the next call to "wgpuDeviceTick".
     WGPUDawnTogglesDescriptor toggles;
-    toggles.chain.next = nullptr;
-    toggles.chain.sType = WGPUSType_DawnTogglesDescriptor;
+    toggles.chain.next          = nullptr;
+    toggles.chain.sType         = WGPUSType_DawnTogglesDescriptor;
     toggles.disabledToggleCount = 0;
-    toggles.enabledToggleCount = 1;
-    const char* toggle_name = "enable_immediate_error_handling";
-    toggles.enabledToggles = &toggle_name;
+    toggles.enabledToggleCount  = 1;
+    const char* toggle_name     = "enable_immediate_error_handling";
+    toggles.enabledToggles      = &toggle_name;
 
     desc.nextInChain = &toggles.chain;
 #endif // WEBGPU_BACKEND_DAWN
@@ -73,19 +73,17 @@ bool Application::Initialize()
 
     inspectAdapter(adapter);
 
-
-
     // Create the device
     std::cout << "Requesting device..." << std::endl;
 
     WGPUDeviceDescriptor device_descriptor = {};
-    device_descriptor.nextInChain = nullptr;
-    device_descriptor.label = "My Device";
-    device_descriptor.requiredFeatureCount = 0;
-    device_descriptor.requiredLimits = nullptr;
-    device_descriptor.defaultQueue.nextInChain = nullptr;
-    device_descriptor.defaultQueue.label = "The default queue";
-    device_descriptor.deviceLostCallback = [](WGPUDeviceLostReason reason, const char* message, [[maybe_unused]] void* user_data)
+    device_descriptor.nextInChain               = nullptr;
+    device_descriptor.label                     = "My Device";
+    device_descriptor.requiredFeatureCount      = 0;
+    device_descriptor.requiredLimits            = nullptr;
+    device_descriptor.defaultQueue.nextInChain  = nullptr;
+    device_descriptor.defaultQueue.label        = "The default queue";
+    device_descriptor.deviceLostCallback        = [](WGPUDeviceLostReason reason, const char* message, [[maybe_unused]] void* user_data)
         {
             std::cout << "Device lost : reason " << reason;
             if (message)
@@ -118,22 +116,126 @@ bool Application::Initialize()
         };
     wgpuQueueOnSubmittedWorkDone(m_queue, onQueueWorkDone, nullptr /* user_data */);
 
-    WGPUTextureFormat surface_format = wgpuSurfaceGetPreferredFormat(m_surface, adapter);
+    m_surface_format = wgpuSurfaceGetPreferredFormat(m_surface, adapter);
     WGPUSurfaceConfiguration config = {};
-    config.nextInChain = nullptr;
-    config.width = 640;
-    config.height = 480;
-    config.format = surface_format;
-    config.viewFormatCount = 0;
-    config.viewFormats = nullptr;
-    config.usage = WGPUTextureUsage_RenderAttachment;
-    config.device = m_device;
-    config.presentMode = WGPUPresentMode_Fifo;
-    config.alphaMode = WGPUCompositeAlphaMode_Auto;
+    config.nextInChain      = nullptr;
+    config.width            = 640;
+    config.height           = 480;
+    config.format           = m_surface_format;
+    config.viewFormatCount  = 0;
+    config.viewFormats      = nullptr;
+    config.usage            = WGPUTextureUsage_RenderAttachment;
+    config.device           = m_device;
+    config.presentMode      = WGPUPresentMode_Fifo;
+    config.alphaMode        = WGPUCompositeAlphaMode_Auto;
 
     wgpuSurfaceConfigure(m_surface, &config);
 
     wgpuAdapterRelease(adapter);
+
+    InitializePipeline();
+
+    return true;
+}
+
+bool Application::InitializePipeline()
+{
+    const char* shader_source =
+        R"(
+        @vertex
+        fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4f 
+        {
+            var p = vec2f(0.0, 0.0);
+            if (in_vertex_index == 0u)
+            {
+                p = vec2f(-0.5, -0.5);
+            }
+            else if (in_vertex_index == 1u)
+            {
+                p = vec2f(0.5, -0.5);
+            }
+            else
+            {
+                p = vec2f(0.0, 0.5);
+            }
+            return vec4f(p, 0.0, 1.0);
+        }
+
+        @fragment
+        fn fs_main() -> @location(0) vec4f
+        {
+            return vec4f(0.0, 0.4, 1.0, 1.0);
+        }
+    )";
+
+    WGPUShaderModuleDescriptor shader_descriptor{};
+
+#ifdef WEBGPU_BACKEND_WGPU
+    shader_descriptor.hintCount                             = 0;
+    shader_descriptor.hints                                 = nullptr;
+#endif // WEBGPU_BACKEND_WGPU
+
+    WGPUShaderModuleWGSLDescriptor shader_code_descriptor{};
+    shader_code_descriptor.chain.next                       = nullptr;
+    shader_code_descriptor.chain.sType                      = WGPUSType_ShaderModuleWGSLDescriptor;
+    shader_code_descriptor.code                             = shader_source;
+    
+    shader_descriptor.nextInChain = &shader_code_descriptor.chain;
+    
+    WGPUShaderModule shader_module = wgpuDeviceCreateShaderModule(m_device, &shader_descriptor);
+
+    WGPURenderPipelineDescriptor pipeline_descriptor{};
+
+    pipeline_descriptor.nextInChain                         = nullptr;
+
+    pipeline_descriptor.vertex.bufferCount                  = 0;
+    pipeline_descriptor.vertex.buffers                      = nullptr;
+    pipeline_descriptor.vertex.module                       = shader_module;
+    pipeline_descriptor.vertex.entryPoint                   = "vs_main";
+    pipeline_descriptor.vertex.constantCount                = 0;
+    pipeline_descriptor.vertex.constants                    = nullptr;
+
+    pipeline_descriptor.primitive.topology                  = WGPUPrimitiveTopology_TriangleList;
+    pipeline_descriptor.primitive.stripIndexFormat          = WGPUIndexFormat_Undefined;
+    pipeline_descriptor.primitive.frontFace                 = WGPUFrontFace_CCW;
+    pipeline_descriptor.primitive.cullMode                  = WGPUCullMode_None;
+
+    WGPUFragmentState fragment_state{};
+    fragment_state.module                                   = shader_module;
+    fragment_state.entryPoint                               = "fs_main";
+    fragment_state.constantCount                            = 0;
+    fragment_state.constants                                = nullptr;
+
+    WGPUBlendState blend_state{};
+
+    blend_state.color.srcFactor                             = WGPUBlendFactor_SrcAlpha;
+    blend_state.color.dstFactor                             = WGPUBlendFactor_OneMinusSrcAlpha;
+    blend_state.color.operation                             = WGPUBlendOperation_Add;
+
+    blend_state.alpha.srcFactor                             = WGPUBlendFactor_Zero;
+    blend_state.alpha.dstFactor                             = WGPUBlendFactor_One;
+    blend_state.alpha.operation                             = WGPUBlendOperation_Add;
+
+    pipeline_descriptor.multisample.count                   = 1;
+    pipeline_descriptor.multisample.mask                    = ~0u;
+    pipeline_descriptor.multisample.alphaToCoverageEnabled  = false;
+
+    WGPUColorTargetState color_target{};
+    color_target.format                                     = m_surface_format;
+    color_target.blend                                      = &blend_state;
+    color_target.writeMask                                  = WGPUColorWriteMask_All;
+
+    fragment_state.targetCount                              = 1;
+    fragment_state.targets                                  = &color_target;
+
+    pipeline_descriptor.fragment                            = &fragment_state;
+    pipeline_descriptor.depthStencil                        = nullptr;
+
+    pipeline_descriptor.layout                              = nullptr;
+
+    m_pipeline = wgpuDeviceCreateRenderPipeline(m_device, &pipeline_descriptor);
+
+    wgpuShaderModuleRelease(shader_module);
 
     return true;
 }
@@ -141,6 +243,7 @@ bool Application::Initialize()
 void Application::Terminate()
 {
     // Move all the release/destroy/terminate calls here
+    wgpuRenderPipelineRelease(m_pipeline);
     wgpuQueueRelease(m_queue);
     wgpuSurfaceUnconfigure(m_surface);
     wgpuSurfaceRelease(m_surface);
@@ -164,31 +267,35 @@ void Application::MainLoop()
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(m_device, &encoder_descriptor);
 
     WGPURenderPassDescriptor render_pass_descriptor = {};
-    render_pass_descriptor.nextInChain = nullptr;
+    render_pass_descriptor.nextInChain              = nullptr;
 
     WGPURenderPassColorAttachment render_pass_color_attachment = {};
-    render_pass_color_attachment.view = target_view;
-    render_pass_color_attachment.resolveTarget = nullptr;
-    render_pass_color_attachment.loadOp = WGPULoadOp_Clear;
-    render_pass_color_attachment.storeOp = WGPUStoreOp_Store;
-    render_pass_color_attachment.clearValue = WGPUColor{ 0.9, 0.1, 0.2, 1.0 };
+    render_pass_color_attachment.view               = target_view;
+    render_pass_color_attachment.resolveTarget      = nullptr;
+    render_pass_color_attachment.loadOp             = WGPULoadOp_Clear;
+    render_pass_color_attachment.storeOp            = WGPUStoreOp_Store;
+    render_pass_color_attachment.clearValue         = WGPUColor{ 0.9, 0.1, 0.2, 1.0 };
 #ifndef WEBGPU_BACKEND_WGPU
-    render_pass_color_attachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    render_pass_color_attachment.depthSlice         = WGPU_DEPTH_SLICE_UNDEFINED;
 #endif // !WEBGPU_BACKEND_WGPU
 
-    render_pass_descriptor.colorAttachmentCount = 1;
-    render_pass_descriptor.colorAttachments = &render_pass_color_attachment;
-    render_pass_descriptor.depthStencilAttachment = nullptr;
-    render_pass_descriptor.timestampWrites = nullptr;
+    render_pass_descriptor.colorAttachmentCount     = 1;
+    render_pass_descriptor.colorAttachments         = &render_pass_color_attachment;
+    render_pass_descriptor.depthStencilAttachment   = nullptr;
+    render_pass_descriptor.timestampWrites          = nullptr;
 
     WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(encoder, &render_pass_descriptor);
+
+    wgpuRenderPassEncoderSetPipeline(render_pass, m_pipeline);
+
+    wgpuRenderPassEncoderDraw(render_pass, 3, 1, 0, 0);
 
     wgpuRenderPassEncoderEnd(render_pass);
     wgpuRenderPassEncoderRelease(render_pass);
 
-    WGPUCommandBufferDescriptor command_buffer_descriptor = {};
-    command_buffer_descriptor.nextInChain = nullptr;
-    command_buffer_descriptor.label = "Command buffer";
+    WGPUCommandBufferDescriptor command_buffer_descriptor   = {};
+    command_buffer_descriptor.nextInChain                   = nullptr;
+    command_buffer_descriptor.label                         = "Command buffer";
     WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder, &command_buffer_descriptor);
     wgpuCommandEncoderRelease(encoder);
 
@@ -197,7 +304,6 @@ void Application::MainLoop()
     wgpuQueueSubmit(m_queue, 1, &command);
     wgpuCommandBufferRelease(command);
     std::cout << "Command submitted." << std::endl;
-
 
     wgpuTextureViewRelease(target_view);
 #ifndef __EMSCRIPTEN__
@@ -227,15 +333,16 @@ WGPUTextureView Application::GetNextSurfaceViewData()
     }
 
     WGPUTextureViewDescriptor view_descriptor;
-    view_descriptor.nextInChain = nullptr;
-    view_descriptor.label = "Surface texture view";
-    view_descriptor.format = wgpuTextureGetFormat(surface_texture.texture);
-    view_descriptor.dimension = WGPUTextureViewDimension_2D;
-    view_descriptor.baseMipLevel = 0;
-    view_descriptor.mipLevelCount = 1;
-    view_descriptor.baseArrayLayer = 0;
+    view_descriptor.nextInChain     = nullptr;
+    view_descriptor.label           = "Surface texture view";
+    view_descriptor.format          = wgpuTextureGetFormat(surface_texture.texture);
+    view_descriptor.dimension       = WGPUTextureViewDimension_2D;
+    view_descriptor.baseMipLevel    = 0;
+    view_descriptor.mipLevelCount   = 1;
+    view_descriptor.baseArrayLayer  = 0;
     view_descriptor.arrayLayerCount = 1;
-    view_descriptor.aspect = WGPUTextureAspect_All;
+    view_descriptor.aspect          = WGPUTextureAspect_All;
+    
     WGPUTextureView target_view = wgpuTextureCreateView(surface_texture.texture, &view_descriptor);
 
     #ifndef WEBGPU_BACKEND_WGPU
