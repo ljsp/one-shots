@@ -3,6 +3,7 @@
 #include <iostream>
 #include <vector>
 #include <cassert>
+#include <numeric>
 
 bool Application::Initialize()
 {
@@ -134,6 +135,8 @@ bool Application::Initialize()
     wgpuAdapterRelease(adapter);
 
     InitializePipeline();
+
+    PlayingWithBuffers();
 
     return true;
 }
@@ -300,10 +303,10 @@ void Application::MainLoop()
     wgpuCommandEncoderRelease(encoder);
 
     // Submit the command queue
-    std::cout << "Submitting Command..." << std::endl;
+    //std::cout << "Submitting Command..." << std::endl;
     wgpuQueueSubmit(m_queue, 1, &command);
     wgpuCommandBufferRelease(command);
-    std::cout << "Command submitted." << std::endl;
+    //std::cout << "Command submitted." << std::endl;
 
     wgpuTextureViewRelease(target_view);
 #ifndef __EMSCRIPTEN__
@@ -352,4 +355,77 @@ WGPUTextureView Application::GetNextSurfaceViewData()
     #endif // WEBGPU_BACKEND_WGPU
 
     return target_view;
+}
+
+bool Application::PlayingWithBuffers()
+{
+    WGPUBufferDescriptor buffer_descriptor{};
+    buffer_descriptor.nextInChain = nullptr;
+    buffer_descriptor.label = "Some GPU-side data buffer";
+    buffer_descriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_CopySrc;
+    buffer_descriptor.size = 16;
+    buffer_descriptor.mappedAtCreation = false;
+
+    WGPUBuffer buffer_1 = wgpuDeviceCreateBuffer(m_device, &buffer_descriptor);
+
+    buffer_descriptor.label = "Output buffer";
+    buffer_descriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
+    WGPUBuffer buffer_2 = wgpuDeviceCreateBuffer(m_device, &buffer_descriptor);
+
+    std::vector<std::uint8_t> numbers(16);
+    std::iota(numbers.begin(), numbers.end(), static_cast<std::uint8_t>(0));
+
+    wgpuQueueWriteBuffer(m_queue, buffer_1, 0, numbers.data(), numbers.size());
+
+    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(m_device, nullptr);
+
+    wgpuCommandEncoderCopyBufferToBuffer(encoder, buffer_1, 0, buffer_2, 0, 16);
+
+    WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder, nullptr);
+    wgpuCommandEncoderRelease(encoder);
+
+    wgpuQueueSubmit(m_queue, 1, &command);
+    wgpuCommandBufferRelease(command);
+
+    struct Context
+    {
+        bool ready = false;
+        WGPUBuffer buffer;
+    };
+
+    auto onBuffer2Mapped = [](WGPUBufferMapAsyncStatus status, void* user_data)
+        {
+            Context* context = reinterpret_cast<Context*>(user_data);
+            context->ready = true;
+            std::cout << "Buffer 2 mapped with status " << status << std::endl;
+            if (status != WGPUBufferMapAsyncStatus_Success)
+            {
+                return;
+            }
+
+            uint8_t* buffer_data = (uint8_t*)wgpuBufferGetConstMappedRange(context->buffer, 0, 16);
+
+            std::cout << "bufferData = [";
+            for (int i = 0; i < 16; ++i) {
+                if (i > 0) std::cout << ", ";
+                std::cout << (int)buffer_data[i];
+            }
+            std::cout << "]" << std::endl;
+
+            wgpuBufferUnmap(context->buffer);
+        };
+
+    Context context = { false, buffer_2 };
+
+    wgpuBufferMapAsync(buffer_2, WGPUMapMode_Read, 0, 16, onBuffer2Mapped, (void*)&context);
+
+    while (!context.ready)
+    {
+        wgpuPollEvents(m_device, true);
+    }
+
+    wgpuBufferRelease(buffer_1);
+    wgpuBufferRelease(buffer_2);
+
+    return true;
 }

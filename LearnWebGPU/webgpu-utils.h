@@ -29,3 +29,6 @@ void inspectAdapter(WGPUAdapter adapter);
  * Display information about a device
  */
 void inspectDevice(WGPUDevice device);
+
+// We define a function that hides implementation-specific variants of device polling:
+void wgpuPollEvents([[maybe_unused]] WGPUDevice device, [[maybe_unused]] bool yield_to_web_browser);

@@ -234,3 +234,17 @@ void inspectDevice(WGPUDevice device)
         std::cout << " - maxComputeWorkgroupsPerDimension: "          << limits.limits.maxComputeWorkgroupsPerDimension          << std::endl;
     }
 }
+
+void wgpuPollEvents([[maybe_unused]] WGPUDevice device, [[maybe_unused]] bool yield_to_web_browser)
+{
+#if defined(WEBGPU_BACKEND_DAWN)
+    wgpuDeviceTick(device);
+#elif defined(WEBGPU_BACKEND_WGPU)
+    wgpuDevicePoll(device, false, nullptr);
+#elif defined(WEBGPU_BACKEND_EMSCRIPTEN)
+    if (yield_to_web_browser)
+    {
+        emscripten_sleep(100);
+    }
+#endif
+}

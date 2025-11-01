@@ -18,8 +18,6 @@ public:
     // Initialize everything and return true if it went all right
     bool Initialize();
 
-    bool InitializePipeline();
-
     // Uninitialize everything that was initialized
     void Terminate();
 
@@ -31,6 +29,9 @@ public:
 
 private:
     WGPUTextureView GetNextSurfaceViewData();
+    
+    bool InitializePipeline();
+    bool PlayingWithBuffers();
 
     // We put here all the variables that are shared between init and main loop
     GLFWwindow*         m_window;
