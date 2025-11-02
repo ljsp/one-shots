@@ -91,6 +91,8 @@ bool Application::Initialize()
                 std::cout << " (" << message << ")";
             std::cout << std::endl;
         };
+    WGPURequiredLimits required_limits = GetWGPURequiredLimits(adapter);
+    device_descriptor.requiredLimits = &required_limits;
 
     m_device = requestDeviceSync(adapter, &device_descriptor);
 
@@ -105,6 +107,16 @@ bool Application::Initialize()
         };
 
     wgpuDeviceSetUncapturedErrorCallback(m_device, onDeviceError, nullptr /*user_data*/);
+
+    WGPUSupportedLimits supportedLimits{};
+    supportedLimits.nextInChain = nullptr;
+    wgpuAdapterGetLimits(adapter, &supportedLimits);
+    std::cout << "adapter.maxVertexAttributes: " << supportedLimits.limits.maxVertexAttributes << std::endl;
+
+    wgpuDeviceGetLimits(m_device, &supportedLimits);
+    std::cout << "device.maxVertexAttributes: " << supportedLimits.limits.maxVertexAttributes << std::endl;
+    std::cout << "device.maxVertexBuffers: " << supportedLimits.limits.maxVertexBuffers << std::endl;
+
 
     inspectDevice(m_device);
 
@@ -136,7 +148,9 @@ bool Application::Initialize()
 
     InitializePipeline();
 
-    PlayingWithBuffers();
+    //PlayingWithBuffers();
+
+    InitializeBuffers();
 
     return true;
 }
@@ -146,22 +160,9 @@ bool Application::InitializePipeline()
     const char* shader_source =
         R"(
         @vertex
-        fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4f 
+        fn vs_main(@location(0) in_vertex_index: vec2f) -> @builtin(position) vec4f 
         {
-            var p = vec2f(0.0, 0.0);
-            if (in_vertex_index == 0u)
-            {
-                p = vec2f(-0.5, -0.5);
-            }
-            else if (in_vertex_index == 1u)
-            {
-                p = vec2f(0.5, -0.5);
-            }
-            else
-            {
-                p = vec2f(0.0, 0.5);
-            }
-            return vec4f(p, 0.0, 1.0);
+            return vec4f(in_vertex_index, 0.0, 1.0);
         }
 
         @fragment
@@ -187,12 +188,28 @@ bool Application::InitializePipeline()
     
     WGPUShaderModule shader_module = wgpuDeviceCreateShaderModule(m_device, &shader_descriptor);
 
+    WGPUVertexBufferLayout vertex_buffer_layout{};
+
+    WGPUVertexAttribute position_attribute;
+    // == For each attribute, describe its layout, i.e, how to interpret the raw data ==
+    // Corresponds to @location(...)
+    position_attribute.shaderLocation = 0;
+    // Means vec2f in the shader
+    position_attribute.format = WGPUVertexFormat_Float32x2;
+    // Index of the first element
+    position_attribute.offset = 0;
+
+    vertex_buffer_layout.attributeCount = 1;
+    vertex_buffer_layout.attributes     = &position_attribute;
+    vertex_buffer_layout.arrayStride    = 2 * sizeof(float);
+    vertex_buffer_layout.stepMode       = WGPUVertexStepMode_Vertex;
+
     WGPURenderPipelineDescriptor pipeline_descriptor{};
 
     pipeline_descriptor.nextInChain                         = nullptr;
 
-    pipeline_descriptor.vertex.bufferCount                  = 0;
-    pipeline_descriptor.vertex.buffers                      = nullptr;
+    pipeline_descriptor.vertex.bufferCount                  = 1;
+    pipeline_descriptor.vertex.buffers                      = &vertex_buffer_layout;
     pipeline_descriptor.vertex.module                       = shader_module;
     pipeline_descriptor.vertex.entryPoint                   = "vs_main";
     pipeline_descriptor.vertex.constantCount                = 0;
@@ -243,9 +260,44 @@ bool Application::InitializePipeline()
     return true;
 }
 
+bool Application::InitializeBuffers()
+{
+    // x, y
+    std::vector<float> vertex_data =
+    {
+        -0.5f,  -0.5f,
+         0.5f,  -0.5f,
+         0.0f,   0.5f,
+
+        -0.55f, -0.5f,
+        -0.05f,  0.5f,
+        -0.55f,  0.5f,
+
+         0.55f, -0.5f,
+         0.05f,  0.5f,
+         0.55f,  0.5f
+    };
+
+    m_vertex_count = static_cast<std::uint32_t>(vertex_data.size() / 2);
+
+    WGPUBufferDescriptor buffer_descriptor{};
+    buffer_descriptor.nextInChain       = nullptr;
+    buffer_descriptor.label             = "Vertex buffer";
+    buffer_descriptor.usage             = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex;
+    buffer_descriptor.size              = vertex_data.size() * sizeof(float);
+    buffer_descriptor.mappedAtCreation  = false;
+
+    m_vertex_buffer = wgpuDeviceCreateBuffer(m_device, &buffer_descriptor);
+
+    wgpuQueueWriteBuffer(m_queue, m_vertex_buffer, 0, vertex_data.data(), buffer_descriptor.size);
+    
+    return true;
+}
+
 void Application::Terminate()
 {
     // Move all the release/destroy/terminate calls here
+    wgpuBufferRelease(m_vertex_buffer);
     wgpuRenderPipelineRelease(m_pipeline);
     wgpuQueueRelease(m_queue);
     wgpuSurfaceUnconfigure(m_surface);
@@ -291,7 +343,9 @@ void Application::MainLoop()
 
     wgpuRenderPassEncoderSetPipeline(render_pass, m_pipeline);
 
-    wgpuRenderPassEncoderDraw(render_pass, 3, 1, 0, 0);
+    wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, m_vertex_buffer, 0, wgpuBufferGetSize(m_vertex_buffer));
+
+    wgpuRenderPassEncoderDraw(render_pass, m_vertex_count, 1, 0, 0);
 
     wgpuRenderPassEncoderEnd(render_pass);
     wgpuRenderPassEncoderRelease(render_pass);
@@ -355,6 +409,33 @@ WGPUTextureView Application::GetNextSurfaceViewData()
     #endif // WEBGPU_BACKEND_WGPU
 
     return target_view;
+}
+
+WGPURequiredLimits Application::GetWGPURequiredLimits(WGPUAdapter adapter) const
+{
+    WGPUSupportedLimits supported_limits{};
+    supported_limits.nextInChain = nullptr;
+    wgpuAdapterGetLimits(adapter, &supported_limits);
+    
+    WGPURequiredLimits required_limits{};
+    required_limits.limits = GetDefaultLimits();
+
+    // These two limits are different because they are "minimum" limits,
+    // they are the only ones we may forward from the adapter's supported
+    // limits.
+    required_limits.limits.minUniformBufferOffsetAlignment = supported_limits.limits.minUniformBufferOffsetAlignment;
+    required_limits.limits.minStorageBufferOffsetAlignment = supported_limits.limits.minStorageBufferOffsetAlignment;
+
+    // We use at most 1 vertex attribute for now
+    required_limits.limits.maxVertexAttributes = 1;
+    // We should also tell that we use 1 vertex buffers
+    required_limits.limits.maxVertexBuffers = 1;
+    // Maximum size of a buffer is 6 vertices of 2 float each
+    required_limits.limits.maxBufferSize = 6 * 2 * sizeof(float);
+    // Maximum stride between 2 consecutive vertices in the vertex buffer
+    required_limits.limits.maxVertexBufferArrayStride = 2 * sizeof(float);
+
+    return required_limits;
 }
 
 bool Application::PlayingWithBuffers()

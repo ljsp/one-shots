@@ -12,6 +12,8 @@
 #  include <emscripten.h>
 #endif // __EMSCRIPTEN__
 
+#include <cstdint>
+
 class Application
 {
 public:
@@ -29,8 +31,10 @@ public:
 
 private:
     WGPUTextureView GetNextSurfaceViewData();
-    
+    WGPURequiredLimits GetWGPURequiredLimits(WGPUAdapter adapter) const;
+
     bool InitializePipeline();
+    bool InitializeBuffers();
     bool PlayingWithBuffers();
 
     // We put here all the variables that are shared between init and main loop
@@ -40,4 +44,7 @@ private:
     WGPURenderPipeline  m_pipeline;
     WGPUSurface         m_surface;
     WGPUTextureFormat   m_surface_format;
+
+    std::uint32_t       m_vertex_count{};
+    WGPUBuffer          m_vertex_buffer;
 };

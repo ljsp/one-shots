@@ -32,3 +32,6 @@ void inspectDevice(WGPUDevice device);
 
 // We define a function that hides implementation-specific variants of device polling:
 void wgpuPollEvents([[maybe_unused]] WGPUDevice device, [[maybe_unused]] bool yield_to_web_browser);
+
+// Returns a WGPULimits structures initialized with default values
+WGPULimits GetDefaultLimits();
