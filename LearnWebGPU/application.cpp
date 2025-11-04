@@ -159,18 +159,33 @@ bool Application::InitializePipeline()
 {
     const char* shader_source =
         R"(
-        @vertex
-        fn vs_main(@location(0) in_vertex_index: vec2f) -> @builtin(position) vec4f 
+        struct VertexInput
         {
-            return vec4f(in_vertex_index, 0.0, 1.0);
+            @location(0) position: vec2f,
+            @location(1) color: vec3f,
+        }
+
+        struct VertexOutput
+        {
+            @builtin(position) position: vec4f,
+            @location(1) color: vec3f,
+        }
+
+        @vertex
+        fn vs_main(in: VertexInput) -> VertexOutput
+        {
+            var out: VertexOutput;
+            out.position = vec4f(in.position, 0.0, 1.0);
+            out.color = in.color;
+            return out;
         }
 
         @fragment
-        fn fs_main() -> @location(0) vec4f
+        fn fs_main(in: VertexOutput) -> @location(0) vec4f
         {
-            return vec4f(0.0, 0.4, 1.0, 1.0);
+            return vec4f(in.color, 1.0);
         }
-    )";
+        )";
 
     WGPUShaderModuleDescriptor shader_descriptor{};
 
@@ -190,18 +205,21 @@ bool Application::InitializePipeline()
 
     WGPUVertexBufferLayout vertex_buffer_layout{};
 
-    WGPUVertexAttribute position_attribute;
+    std::vector<WGPUVertexAttribute> vertex_attributes(2);
     // == For each attribute, describe its layout, i.e, how to interpret the raw data ==
     // Corresponds to @location(...)
-    position_attribute.shaderLocation = 0;
+    vertex_attributes[0].shaderLocation = 0; // @location(0)
+    vertex_attributes[1].shaderLocation = 1; // @location(1)
     // Means vec2f in the shader
-    position_attribute.format = WGPUVertexFormat_Float32x2;
+    vertex_attributes[0].format = WGPUVertexFormat_Float32x2;
+    vertex_attributes[1].format = WGPUVertexFormat_Float32x3;
     // Index of the first element
-    position_attribute.offset = 0;
+    vertex_attributes[0].offset = 0;
+    vertex_attributes[1].offset = 2 * sizeof(float);
 
-    vertex_buffer_layout.attributeCount = 1;
-    vertex_buffer_layout.attributes     = &position_attribute;
-    vertex_buffer_layout.arrayStride    = 2 * sizeof(float);
+    vertex_buffer_layout.attributeCount = vertex_attributes.size();
+    vertex_buffer_layout.attributes     = vertex_attributes.data();
+    vertex_buffer_layout.arrayStride    = 5 * sizeof(float);
     vertex_buffer_layout.stepMode       = WGPUVertexStepMode_Vertex;
 
     WGPURenderPipelineDescriptor pipeline_descriptor{};
@@ -262,23 +280,23 @@ bool Application::InitializePipeline()
 
 bool Application::InitializeBuffers()
 {
-    // x, y
+    // x, y, r, g, b
     std::vector<float> vertex_data =
     {
-        -0.5f,  -0.5f,
-         0.5f,  -0.5f,
-         0.0f,   0.5f,
+        -0.5f,  -0.5f, 1.0, 0.0, 0.0,
+         0.5f,  -0.5f, 0.0, 1.0, 0.0,
+         0.0f,   0.5f, 0.0, 0.0, 1.0,
 
-        -0.55f, -0.5f,
-        -0.05f,  0.5f,
-        -0.55f,  0.5f,
+        -0.55f, -0.5f, 1.0, 0.0, 0.0,
+        -0.05f,  0.5f, 0.0, 1.0, 0.0,
+        -0.55f,  0.5f, 0.0, 0.0, 1.0,
 
-         0.55f, -0.5f,
-         0.05f,  0.5f,
-         0.55f,  0.5f
+         0.55f, -0.5f, 1.0, 0.0, 0.0,
+         0.05f,  0.5f, 0.0, 1.0, 0.0,
+         0.55f,  0.5f, 0.0, 0.0, 1.0,
     };
 
-    m_vertex_count = static_cast<std::uint32_t>(vertex_data.size() / 2);
+    m_vertex_count = static_cast<std::uint32_t>(vertex_data.size() / 5);
 
     WGPUBufferDescriptor buffer_descriptor{};
     buffer_descriptor.nextInChain       = nullptr;
@@ -329,7 +347,7 @@ void Application::MainLoop()
     render_pass_color_attachment.resolveTarget      = nullptr;
     render_pass_color_attachment.loadOp             = WGPULoadOp_Clear;
     render_pass_color_attachment.storeOp            = WGPUStoreOp_Store;
-    render_pass_color_attachment.clearValue         = WGPUColor{ 0.9, 0.1, 0.2, 1.0 };
+    render_pass_color_attachment.clearValue         = WGPUColor{ 0.05, 0.05, 0.05, 1.0 };
 #ifndef WEBGPU_BACKEND_WGPU
     render_pass_color_attachment.depthSlice         = WGPU_DEPTH_SLICE_UNDEFINED;
 #endif // !WEBGPU_BACKEND_WGPU
@@ -426,14 +444,17 @@ WGPURequiredLimits Application::GetWGPURequiredLimits(WGPUAdapter adapter) const
     required_limits.limits.minUniformBufferOffsetAlignment = supported_limits.limits.minUniformBufferOffsetAlignment;
     required_limits.limits.minStorageBufferOffsetAlignment = supported_limits.limits.minStorageBufferOffsetAlignment;
 
-    // We use at most 1 vertex attribute for now
-    required_limits.limits.maxVertexAttributes = 1;
+    // We use at most 2 vertex attribute for now
+    required_limits.limits.maxVertexAttributes = 2;
     // We should also tell that we use 1 vertex buffers
     required_limits.limits.maxVertexBuffers = 1;
     // Maximum size of a buffer is 6 vertices of 2 float each
-    required_limits.limits.maxBufferSize = 6 * 2 * sizeof(float);
+    required_limits.limits.maxBufferSize = 9 * 5 * sizeof(float);
     // Maximum stride between 2 consecutive vertices in the vertex buffer
-    required_limits.limits.maxVertexBufferArrayStride = 2 * sizeof(float);
+    required_limits.limits.maxVertexBufferArrayStride = 5 * sizeof(float);
+
+    // There is a maximum of 3 float (color) forwarded from vertex to fragment shader
+    required_limits.limits.maxInterStageShaderComponents = 3;
 
     return required_limits;
 }

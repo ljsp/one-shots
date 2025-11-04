@@ -242,7 +242,7 @@ void wgpuPollEvents([[maybe_unused]] WGPUDevice device, [[maybe_unused]] bool yi
 #if defined(WEBGPU_BACKEND_DAWN)
     wgpuDeviceTick(device);
 #elif defined(WEBGPU_BACKEND_WGPU)
-    wgpuDevicePoll(device, false, nullptr);
+    //wgpuDevicePoll(device, false, nullptr);
 #elif defined(WEBGPU_BACKEND_EMSCRIPTEN)
     if (yield_to_web_browser)
     {
