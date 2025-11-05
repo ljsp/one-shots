@@ -45,6 +45,7 @@ private:
     WGPUSurface         m_surface;
     WGPUTextureFormat   m_surface_format;
 
-    std::uint32_t       m_vertex_count{};
-    WGPUBuffer          m_vertex_buffer;
+    std::uint32_t       m_index_count{};
+    WGPUBuffer          m_point_buffer;
+    WGPUBuffer          m_index_buffer;
 };

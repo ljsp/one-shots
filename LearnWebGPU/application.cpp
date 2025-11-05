@@ -294,20 +294,42 @@ bool Application::InitializeBuffers()
          0.55f, -0.5f, 1.0, 0.0, 0.0,
          0.05f,  0.5f, 0.0, 1.0, 0.0,
          0.55f,  0.5f, 0.0, 0.0, 1.0,
+
+         0.0f,  -0.75f, 0.0, 0.0, 1.0,
     };
 
-    m_vertex_count = static_cast<std::uint32_t>(vertex_data.size() / 5);
+    std::vector<std::uint16_t> index_data
+    {
+        0, 1, 2,
+        3, 4, 5,
+        6, 7, 8,
+        9, 0, 1
+    };
+    index_data.resize((index_data.size() + 1) & ~1); // round up to the next multiple of 2
+
+    m_index_count = static_cast<std::uint32_t>(index_data.size());
 
     WGPUBufferDescriptor buffer_descriptor{};
     buffer_descriptor.nextInChain       = nullptr;
-    buffer_descriptor.label             = "Vertex buffer";
+    buffer_descriptor.label             = "Point buffer";
     buffer_descriptor.usage             = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Vertex;
     buffer_descriptor.size              = vertex_data.size() * sizeof(float);
     buffer_descriptor.mappedAtCreation  = false;
 
-    m_vertex_buffer = wgpuDeviceCreateBuffer(m_device, &buffer_descriptor);
+    m_point_buffer = wgpuDeviceCreateBuffer(m_device, &buffer_descriptor);
 
-    wgpuQueueWriteBuffer(m_queue, m_vertex_buffer, 0, vertex_data.data(), buffer_descriptor.size);
+    wgpuQueueWriteBuffer(m_queue, m_point_buffer, 0, vertex_data.data(), buffer_descriptor.size);
+
+    buffer_descriptor.nextInChain = nullptr;
+    buffer_descriptor.label = "Index buffer";
+    buffer_descriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index;
+    buffer_descriptor.size = index_data.size() * sizeof(std::uint16_t);
+    buffer_descriptor.size = (buffer_descriptor.size + 3) & ~3;
+    buffer_descriptor.mappedAtCreation = false;
+
+    m_index_buffer = wgpuDeviceCreateBuffer(m_device, &buffer_descriptor);
+
+    wgpuQueueWriteBuffer(m_queue, m_index_buffer, 0, index_data.data(), buffer_descriptor.size);
     
     return true;
 }
@@ -315,7 +337,8 @@ bool Application::InitializeBuffers()
 void Application::Terminate()
 {
     // Move all the release/destroy/terminate calls here
-    wgpuBufferRelease(m_vertex_buffer);
+    wgpuBufferRelease(m_point_buffer);
+    wgpuBufferRelease(m_index_buffer);
     wgpuRenderPipelineRelease(m_pipeline);
     wgpuQueueRelease(m_queue);
     wgpuSurfaceUnconfigure(m_surface);
@@ -361,9 +384,10 @@ void Application::MainLoop()
 
     wgpuRenderPassEncoderSetPipeline(render_pass, m_pipeline);
 
-    wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, m_vertex_buffer, 0, wgpuBufferGetSize(m_vertex_buffer));
+    wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, m_point_buffer, 0, wgpuBufferGetSize(m_point_buffer));
+    wgpuRenderPassEncoderSetIndexBuffer(render_pass, m_index_buffer, WGPUIndexFormat_Uint16, 0, wgpuBufferGetSize(m_index_buffer));
 
-    wgpuRenderPassEncoderDraw(render_pass, m_vertex_count, 1, 0, 0);
+    wgpuRenderPassEncoderDrawIndexed(render_pass, m_index_count, 1, 0, 0, 0);
 
     wgpuRenderPassEncoderEnd(render_pass);
     wgpuRenderPassEncoderRelease(render_pass);
