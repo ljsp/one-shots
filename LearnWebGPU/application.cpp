@@ -1,5 +1,9 @@
 #include "application.h"
 
+#include "ressource-manager.h"
+
+#include "magic_enum.h"
+
 #include <iostream>
 #include <vector>
 #include <cassert>
@@ -130,6 +134,9 @@ bool Application::Initialize()
     wgpuQueueOnSubmittedWorkDone(m_queue, onQueueWorkDone, nullptr /* user_data */);
 
     m_surface_format = wgpuSurfaceGetPreferredFormat(m_surface, adapter);
+
+    std::cout << "Surface format: " << magic_enum::enum_name<WGPUTextureFormat>(m_surface_format) << std::endl;
+
     WGPUSurfaceConfiguration config = {};
     config.nextInChain      = nullptr;
     config.width            = 640;
@@ -157,51 +164,16 @@ bool Application::Initialize()
 
 bool Application::InitializePipeline()
 {
-    const char* shader_source =
-        R"(
-        struct VertexInput
-        {
-            @location(0) position: vec2f,
-            @location(1) color: vec3f,
-        }
+    std::cout << "Creating shader module..." << std::endl;
+    WGPUShaderModule shader_module = ResourceManager::LoadShaderModule(m_device, RESOURCE_DIR "/shader.wgsl");
+    std::cout << "Shader module: " << shader_module << std::endl;
 
-        struct VertexOutput
-        {
-            @builtin(position) position: vec4f,
-            @location(1) color: vec3f,
-        }
-
-        @vertex
-        fn vs_main(in: VertexInput) -> VertexOutput
-        {
-            var out: VertexOutput;
-            out.position = vec4f(in.position, 0.0, 1.0);
-            out.color = in.color;
-            return out;
-        }
-
-        @fragment
-        fn fs_main(in: VertexOutput) -> @location(0) vec4f
-        {
-            return vec4f(in.color, 1.0);
-        }
-        )";
-
-    WGPUShaderModuleDescriptor shader_descriptor{};
-
-#ifdef WEBGPU_BACKEND_WGPU
-    shader_descriptor.hintCount                             = 0;
-    shader_descriptor.hints                                 = nullptr;
-#endif // WEBGPU_BACKEND_WGPU
-
-    WGPUShaderModuleWGSLDescriptor shader_code_descriptor{};
-    shader_code_descriptor.chain.next                       = nullptr;
-    shader_code_descriptor.chain.sType                      = WGPUSType_ShaderModuleWGSLDescriptor;
-    shader_code_descriptor.code                             = shader_source;
-    
-    shader_descriptor.nextInChain = &shader_code_descriptor.chain;
-    
-    WGPUShaderModule shader_module = wgpuDeviceCreateShaderModule(m_device, &shader_descriptor);
+    // Check for errors
+    if (shader_module == nullptr)
+    {
+        std::cerr << "Could not load shader!" << std::endl;
+        exit(1);
+    }
 
     WGPUVertexBufferLayout vertex_buffer_layout{};
 
@@ -281,30 +253,12 @@ bool Application::InitializePipeline()
 bool Application::InitializeBuffers()
 {
     // x, y, r, g, b
-    std::vector<float> vertex_data =
-    {
-        -0.5f,  -0.5f, 1.0, 0.0, 0.0,
-         0.5f,  -0.5f, 0.0, 1.0, 0.0,
-         0.0f,   0.5f, 0.0, 0.0, 1.0,
+    std::vector<float> vertex_data{};
 
-        -0.55f, -0.5f, 1.0, 0.0, 0.0,
-        -0.05f,  0.5f, 0.0, 1.0, 0.0,
-        -0.55f,  0.5f, 0.0, 0.0, 1.0,
+    std::vector<std::uint16_t> index_data{};
 
-         0.55f, -0.5f, 1.0, 0.0, 0.0,
-         0.05f,  0.5f, 0.0, 1.0, 0.0,
-         0.55f,  0.5f, 0.0, 0.0, 1.0,
+    ResourceManager::LoadGeometry(RESOURCE_DIR "/webgpu.txt", vertex_data, index_data);
 
-         0.0f,  -0.75f, 0.0, 0.0, 1.0,
-    };
-
-    std::vector<std::uint16_t> index_data
-    {
-        0, 1, 2,
-        3, 4, 5,
-        6, 7, 8,
-        9, 0, 1
-    };
     index_data.resize((index_data.size() + 1) & ~1); // round up to the next multiple of 2
 
     m_index_count = static_cast<std::uint32_t>(index_data.size());
@@ -472,8 +426,8 @@ WGPURequiredLimits Application::GetWGPURequiredLimits(WGPUAdapter adapter) const
     required_limits.limits.maxVertexAttributes = 2;
     // We should also tell that we use 1 vertex buffers
     required_limits.limits.maxVertexBuffers = 1;
-    // Maximum size of a buffer is 6 vertices of 2 float each
-    required_limits.limits.maxBufferSize = 9 * 5 * sizeof(float);
+    // Maximum size of a buffer is 15 point of 5 float each
+    required_limits.limits.maxBufferSize = 15 * 5 * sizeof(float);
     // Maximum stride between 2 consecutive vertices in the vertex buffer
     required_limits.limits.maxVertexBufferArrayStride = 5 * sizeof(float);
 

@@ -17,9 +17,9 @@ if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
   )
 endif()
 
-add_executable(App main.cpp webgpu-utils.cpp application.cpp)
+add_executable(App main.cpp webgpu-utils.cpp ressource-manager.cpp application.cpp)
 
-set_target_properties(App PROPERTIES
+set_target_properties(App PROPERTIES    
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
@@ -30,6 +30,23 @@ if (MSVC)
     target_compile_options(App PRIVATE /W4)
 else()
     target_compile_options(App PRIVATE -Wall -Wextra -pedantic)
+endif()
+
+option(DEV_MODE "Set up development helper settings" ON)
+
+if(DEV_MODE)
+    # In dev mode, we load resources from the source tree, so that when we
+    # dynamically edit resources (like shaders), these are correctly
+    # versionned.
+    target_compile_definitions(App PRIVATE
+        RESOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources"
+    )
+else()
+    # In release mode, we just load resources relatively to wherever the
+    # executable is launched from, so that the binary is portable
+    target_compile_definitions(App PRIVATE
+        RESOURCE_DIR="./resources"
+    )
 endif()
 
 if (NOT EMSCRIPTEN)
@@ -44,7 +61,10 @@ else()
     set_target_properties(App PROPERTIES SUFFIX ".html")
     
     # Enable the use of emscripten_sleep()
-    target_link_options(App PRIVATE -sASYNCIFY)
+    target_link_options(App PRIVATE 
+        -sASYNCIFY
+        --preload-file "${CMAKE_CURRENT_SOURCE_DIR}/resources@resources"
+    )
 endif()
 
 add_subdirectory(glfw3webgpu)
