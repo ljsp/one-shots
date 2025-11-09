@@ -35,3 +35,5 @@ void wgpuPollEvents([[maybe_unused]] WGPUDevice device, [[maybe_unused]] bool yi
 
 // Returns a WGPULimits structures initialized with default values
 WGPULimits GetDefaultLimits();
+
+WGPUBindGroupLayoutEntry GetDefaultWGPUBindGroupLayoutEntry();

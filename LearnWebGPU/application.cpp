@@ -159,6 +159,8 @@ bool Application::Initialize()
 
     InitializeBuffers();
 
+    InitializeBindGroups();
+
     return true;
 }
 
@@ -241,7 +243,27 @@ bool Application::InitializePipeline()
     pipeline_descriptor.fragment                            = &fragment_state;
     pipeline_descriptor.depthStencil                        = nullptr;
 
-    pipeline_descriptor.layout                              = nullptr;
+    WGPUBindGroupLayoutEntry bind_group_layout_entry = GetDefaultWGPUBindGroupLayoutEntry();
+    bind_group_layout_entry.binding = 0; // in shader: @binding(0)
+    bind_group_layout_entry.visibility = WGPUShaderStage_Vertex;
+
+    bind_group_layout_entry.buffer.type = WGPUBufferBindingType_Uniform;
+    bind_group_layout_entry.buffer.minBindingSize = 4 * sizeof(float);
+
+    WGPUBindGroupLayoutDescriptor bind_group_layout_descriptor{};
+    bind_group_layout_descriptor.nextInChain = nullptr;
+    bind_group_layout_descriptor.entryCount = 1;
+    bind_group_layout_descriptor.entries = &bind_group_layout_entry;
+    m_bind_group_layout = wgpuDeviceCreateBindGroupLayout(m_device, &bind_group_layout_descriptor);
+
+
+    WGPUPipelineLayoutDescriptor layout_descriptor{};
+    layout_descriptor.nextInChain = nullptr;
+    layout_descriptor.bindGroupLayoutCount = 1;
+    layout_descriptor.bindGroupLayouts = &m_bind_group_layout;
+    m_layout = wgpuDeviceCreatePipelineLayout(m_device, &layout_descriptor);
+
+    pipeline_descriptor.layout                              = m_layout;
 
     m_pipeline = wgpuDeviceCreateRenderPipeline(m_device, &pipeline_descriptor);
 
@@ -274,7 +296,6 @@ bool Application::InitializeBuffers()
 
     wgpuQueueWriteBuffer(m_queue, m_point_buffer, 0, vertex_data.data(), buffer_descriptor.size);
 
-    buffer_descriptor.nextInChain = nullptr;
     buffer_descriptor.label = "Index buffer";
     buffer_descriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Index;
     buffer_descriptor.size = index_data.size() * sizeof(std::uint16_t);
@@ -284,16 +305,52 @@ bool Application::InitializeBuffers()
     m_index_buffer = wgpuDeviceCreateBuffer(m_device, &buffer_descriptor);
 
     wgpuQueueWriteBuffer(m_queue, m_index_buffer, 0, index_data.data(), buffer_descriptor.size);
+
+    buffer_descriptor.label = "Uniform buffer";
+    buffer_descriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Uniform;
+    buffer_descriptor.size = 4 * sizeof(float);
+    buffer_descriptor.mappedAtCreation = false;
+
+    m_uniform_buffer = wgpuDeviceCreateBuffer(m_device, &buffer_descriptor);
     
+    float current_time = 1.0f;
+    wgpuQueueWriteBuffer(m_queue, m_uniform_buffer, 0, &current_time, sizeof(float));
+    
+    return true;
+}
+
+bool Application::InitializeBindGroups()
+{
+    WGPUBindGroupEntry binding{};
+    binding.nextInChain = nullptr;
+    binding.binding = 0;
+    binding.buffer = m_uniform_buffer;
+    binding.offset = 0;
+    binding.size = 4 * sizeof(float);
+
+    // A bind group contains one or multiple bindings
+    WGPUBindGroupDescriptor bind_group_descriptor{};
+    bind_group_descriptor.nextInChain = nullptr;
+    bind_group_descriptor.layout = m_bind_group_layout;
+
+    // There must be as many bindings as declared in the layout!
+    bind_group_descriptor.entryCount = 1;
+    bind_group_descriptor.entries = &binding;
+    m_bind_group = wgpuDeviceCreateBindGroup(m_device, &bind_group_descriptor);
+
     return true;
 }
 
 void Application::Terminate()
 {
     // Move all the release/destroy/terminate calls here
+    wgpuBufferRelease(m_uniform_buffer);
     wgpuBufferRelease(m_point_buffer);
     wgpuBufferRelease(m_index_buffer);
     wgpuRenderPipelineRelease(m_pipeline);
+    wgpuBindGroupRelease(m_bind_group);
+    wgpuPipelineLayoutRelease(m_layout);
+    wgpuBindGroupLayoutRelease(m_bind_group_layout);
     wgpuQueueRelease(m_queue);
     wgpuSurfaceUnconfigure(m_surface);
     wgpuSurfaceRelease(m_surface);
@@ -305,6 +362,9 @@ void Application::Terminate()
 void Application::MainLoop()
 {
     glfwPollEvents();
+
+    float t = static_cast<float>(glfwGetTime());
+    wgpuQueueWriteBuffer(m_queue, m_uniform_buffer, 0, &t, sizeof(float));
 
     WGPUTextureView target_view = GetNextSurfaceViewData();
     
@@ -340,6 +400,8 @@ void Application::MainLoop()
 
     wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, m_point_buffer, 0, wgpuBufferGetSize(m_point_buffer));
     wgpuRenderPassEncoderSetIndexBuffer(render_pass, m_index_buffer, WGPUIndexFormat_Uint16, 0, wgpuBufferGetSize(m_index_buffer));
+
+    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, m_bind_group, 0, nullptr);
 
     wgpuRenderPassEncoderDrawIndexed(render_pass, m_index_count, 1, 0, 0, 0);
 
@@ -422,6 +484,11 @@ WGPURequiredLimits Application::GetWGPURequiredLimits(WGPUAdapter adapter) const
     required_limits.limits.minUniformBufferOffsetAlignment = supported_limits.limits.minUniformBufferOffsetAlignment;
     required_limits.limits.minStorageBufferOffsetAlignment = supported_limits.limits.minStorageBufferOffsetAlignment;
 
+    
+    required_limits.limits.maxBindGroups = 1;
+    required_limits.limits.maxUniformBuffersPerShaderStage= 1;
+    required_limits.limits.maxUniformBufferBindingSize = 16 * sizeof(float);
+    
     // We use at most 2 vertex attribute for now
     required_limits.limits.maxVertexAttributes = 2;
     // We should also tell that we use 1 vertex buffers
@@ -430,82 +497,10 @@ WGPURequiredLimits Application::GetWGPURequiredLimits(WGPUAdapter adapter) const
     required_limits.limits.maxBufferSize = 15 * 5 * sizeof(float);
     // Maximum stride between 2 consecutive vertices in the vertex buffer
     required_limits.limits.maxVertexBufferArrayStride = 5 * sizeof(float);
+    
 
     // There is a maximum of 3 float (color) forwarded from vertex to fragment shader
     required_limits.limits.maxInterStageShaderComponents = 3;
 
     return required_limits;
-}
-
-bool Application::PlayingWithBuffers()
-{
-    WGPUBufferDescriptor buffer_descriptor{};
-    buffer_descriptor.nextInChain = nullptr;
-    buffer_descriptor.label = "Some GPU-side data buffer";
-    buffer_descriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_CopySrc;
-    buffer_descriptor.size = 16;
-    buffer_descriptor.mappedAtCreation = false;
-
-    WGPUBuffer buffer_1 = wgpuDeviceCreateBuffer(m_device, &buffer_descriptor);
-
-    buffer_descriptor.label = "Output buffer";
-    buffer_descriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
-    WGPUBuffer buffer_2 = wgpuDeviceCreateBuffer(m_device, &buffer_descriptor);
-
-    std::vector<std::uint8_t> numbers(16);
-    std::iota(numbers.begin(), numbers.end(), static_cast<std::uint8_t>(0));
-
-    wgpuQueueWriteBuffer(m_queue, buffer_1, 0, numbers.data(), numbers.size());
-
-    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(m_device, nullptr);
-
-    wgpuCommandEncoderCopyBufferToBuffer(encoder, buffer_1, 0, buffer_2, 0, 16);
-
-    WGPUCommandBuffer command = wgpuCommandEncoderFinish(encoder, nullptr);
-    wgpuCommandEncoderRelease(encoder);
-
-    wgpuQueueSubmit(m_queue, 1, &command);
-    wgpuCommandBufferRelease(command);
-
-    struct Context
-    {
-        bool ready = false;
-        WGPUBuffer buffer;
-    };
-
-    auto onBuffer2Mapped = [](WGPUBufferMapAsyncStatus status, void* user_data)
-        {
-            Context* context = reinterpret_cast<Context*>(user_data);
-            context->ready = true;
-            std::cout << "Buffer 2 mapped with status " << status << std::endl;
-            if (status != WGPUBufferMapAsyncStatus_Success)
-            {
-                return;
-            }
-
-            uint8_t* buffer_data = (uint8_t*)wgpuBufferGetConstMappedRange(context->buffer, 0, 16);
-
-            std::cout << "bufferData = [";
-            for (int i = 0; i < 16; ++i) {
-                if (i > 0) std::cout << ", ";
-                std::cout << (int)buffer_data[i];
-            }
-            std::cout << "]" << std::endl;
-
-            wgpuBufferUnmap(context->buffer);
-        };
-
-    Context context = { false, buffer_2 };
-
-    wgpuBufferMapAsync(buffer_2, WGPUMapMode_Read, 0, 16, onBuffer2Mapped, (void*)&context);
-
-    while (!context.ready)
-    {
-        wgpuPollEvents(m_device, true);
-    }
-
-    wgpuBufferRelease(buffer_1);
-    wgpuBufferRelease(buffer_2);
-
-    return true;
 }

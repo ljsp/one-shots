@@ -35,12 +35,16 @@ private:
 
     bool InitializePipeline();
     bool InitializeBuffers();
+    bool InitializeBindGroups();
     bool PlayingWithBuffers();
 
     // We put here all the variables that are shared between init and main loop
     GLFWwindow*         m_window;
     WGPUDevice          m_device;
     WGPUQueue           m_queue;
+    WGPUBindGroupLayout m_bind_group_layout;
+    WGPUBindGroup       m_bind_group;
+    WGPUPipelineLayout  m_layout;
     WGPURenderPipeline  m_pipeline;
     WGPUSurface         m_surface;
     WGPUTextureFormat   m_surface_format;
@@ -48,4 +52,5 @@ private:
     std::uint32_t       m_index_count{};
     WGPUBuffer          m_point_buffer;
     WGPUBuffer          m_index_buffer;
+    WGPUBuffer          m_uniform_buffer;
 };
