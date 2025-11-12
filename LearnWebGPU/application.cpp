@@ -6,8 +6,17 @@
 
 #include <iostream>
 #include <vector>
+#include <array>
 #include <cassert>
 #include <numeric>
+
+struct MyUniforms
+{
+    std::array<float, 4> color{};
+    float time{};
+    std::array<float, 3> _padding{};
+};
+static_assert(sizeof(MyUniforms) % 16 == 0);
 
 bool Application::Initialize()
 {
@@ -245,10 +254,10 @@ bool Application::InitializePipeline()
 
     WGPUBindGroupLayoutEntry bind_group_layout_entry = GetDefaultWGPUBindGroupLayoutEntry();
     bind_group_layout_entry.binding = 0; // in shader: @binding(0)
-    bind_group_layout_entry.visibility = WGPUShaderStage_Vertex;
+    bind_group_layout_entry.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
 
     bind_group_layout_entry.buffer.type = WGPUBufferBindingType_Uniform;
-    bind_group_layout_entry.buffer.minBindingSize = 4 * sizeof(float);
+    bind_group_layout_entry.buffer.minBindingSize = sizeof(MyUniforms);
 
     WGPUBindGroupLayoutDescriptor bind_group_layout_descriptor{};
     bind_group_layout_descriptor.nextInChain = nullptr;
@@ -308,13 +317,18 @@ bool Application::InitializeBuffers()
 
     buffer_descriptor.label = "Uniform buffer";
     buffer_descriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Uniform;
-    buffer_descriptor.size = 4 * sizeof(float);
+    buffer_descriptor.size = sizeof(MyUniforms);
     buffer_descriptor.mappedAtCreation = false;
 
     m_uniform_buffer = wgpuDeviceCreateBuffer(m_device, &buffer_descriptor);
     
-    float current_time = 1.0f;
-    wgpuQueueWriteBuffer(m_queue, m_uniform_buffer, 0, &current_time, sizeof(float));
+    MyUniforms my_uniforms =
+    {
+        .color = { 0.0f, 1.0f, 0.4f, 1.0f },
+        .time = 1.0f,
+    };
+
+    wgpuQueueWriteBuffer(m_queue, m_uniform_buffer, 0, &my_uniforms, sizeof(MyUniforms));
     
     return true;
 }
@@ -326,7 +340,7 @@ bool Application::InitializeBindGroups()
     binding.binding = 0;
     binding.buffer = m_uniform_buffer;
     binding.offset = 0;
-    binding.size = 4 * sizeof(float);
+    binding.size = sizeof(MyUniforms);
 
     // A bind group contains one or multiple bindings
     WGPUBindGroupDescriptor bind_group_descriptor{};
@@ -362,9 +376,20 @@ void Application::Terminate()
 void Application::MainLoop()
 {
     glfwPollEvents();
+    
+    MyUniforms my_uniforms =
+    {
+        .color = { 1.0f, 0.5f, 0.0f, 1.0f },
+        .time = static_cast<float>(glfwGetTime()),
+    };
 
-    float t = static_cast<float>(glfwGetTime());
-    wgpuQueueWriteBuffer(m_queue, m_uniform_buffer, 0, &t, sizeof(float));
+    // Update only time
+    //wgpuQueueWriteBuffer(m_queue, m_uniform_buffer, offsetof(MyUniforms, time), &my_uniforms.time, sizeof(float));
+
+    // Update only color
+    //wgpuQueueWriteBuffer(m_queue, m_uniform_buffer, offsetof(MyUniforms, color), &my_uniforms.color, sizeof(MyUniforms::color));
+    
+    wgpuQueueWriteBuffer(m_queue, m_uniform_buffer, 0, &my_uniforms, sizeof(MyUniforms));
 
     WGPUTextureView target_view = GetNextSurfaceViewData();
     
