@@ -1,6 +1,7 @@
 #pragma once
 
 #include <webgpu/webgpu.h>
+#include <cstdint>
 
 /**
  * Utility function to get a WebGPU adapter, so that
@@ -37,3 +38,8 @@ void wgpuPollEvents([[maybe_unused]] WGPUDevice device, [[maybe_unused]] bool yi
 WGPULimits GetDefaultLimits();
 
 WGPUBindGroupLayoutEntry GetDefaultWGPUBindGroupLayoutEntry();
+
+/**
+ * Round 'value' up to the next multiplier of 'step'.
+ */
+std::uint32_t CeilToNextMutliple(std::uint32_t value, std::uint32_t step);

@@ -121,16 +121,17 @@ bool Application::Initialize()
 
     wgpuDeviceSetUncapturedErrorCallback(m_device, onDeviceError, nullptr /*user_data*/);
 
-    WGPUSupportedLimits supportedLimits{};
-    supportedLimits.nextInChain = nullptr;
-    wgpuAdapterGetLimits(adapter, &supportedLimits);
-    std::cout << "adapter.maxVertexAttributes: " << supportedLimits.limits.maxVertexAttributes << std::endl;
+    WGPUSupportedLimits supported_limits{};
+    supported_limits.nextInChain = nullptr;
+    wgpuAdapterGetLimits(adapter, &supported_limits);
+    std::cout << "adapter.maxVertexAttributes: " << supported_limits.limits.maxVertexAttributes << std::endl;
 
-    wgpuDeviceGetLimits(m_device, &supportedLimits);
-    std::cout << "device.maxVertexAttributes: " << supportedLimits.limits.maxVertexAttributes << std::endl;
-    std::cout << "device.maxVertexBuffers: " << supportedLimits.limits.maxVertexBuffers << std::endl;
+    wgpuDeviceGetLimits(m_device, &supported_limits);
+    std::cout << "device.maxVertexAttributes: " << supported_limits.limits.maxVertexAttributes << std::endl;
+    std::cout << "device.maxVertexBuffers: " << supported_limits.limits.maxVertexBuffers << std::endl;
 
-
+    m_uniform_stride = CeilToNextMutliple(sizeof(MyUniforms), supported_limits.limits.minUniformBufferOffsetAlignment);
+        
     inspectDevice(m_device);
 
     // Create the queue
@@ -258,6 +259,7 @@ bool Application::InitializePipeline()
 
     bind_group_layout_entry.buffer.type = WGPUBufferBindingType_Uniform;
     bind_group_layout_entry.buffer.minBindingSize = sizeof(MyUniforms);
+    bind_group_layout_entry.buffer.hasDynamicOffset = true;
 
     WGPUBindGroupLayoutDescriptor bind_group_layout_descriptor{};
     bind_group_layout_descriptor.nextInChain = nullptr;
@@ -317,7 +319,7 @@ bool Application::InitializeBuffers()
 
     buffer_descriptor.label = "Uniform buffer";
     buffer_descriptor.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_Uniform;
-    buffer_descriptor.size = sizeof(MyUniforms);
+    buffer_descriptor.size = m_uniform_stride + sizeof(MyUniforms);
     buffer_descriptor.mappedAtCreation = false;
 
     m_uniform_buffer = wgpuDeviceCreateBuffer(m_device, &buffer_descriptor);
@@ -329,6 +331,14 @@ bool Application::InitializeBuffers()
     };
 
     wgpuQueueWriteBuffer(m_queue, m_uniform_buffer, 0, &my_uniforms, sizeof(MyUniforms));
+
+    my_uniforms =
+    {
+        .color = { 1.0f, 0.0f, 0.4f, 1.0f },
+        .time = -1.0f,
+    };
+
+    wgpuQueueWriteBuffer(m_queue, m_uniform_buffer, m_uniform_stride, &my_uniforms, sizeof(MyUniforms));
     
     return true;
 }
@@ -383,13 +393,15 @@ void Application::MainLoop()
         .time = static_cast<float>(glfwGetTime()),
     };
 
-    // Update only time
-    //wgpuQueueWriteBuffer(m_queue, m_uniform_buffer, offsetof(MyUniforms, time), &my_uniforms.time, sizeof(float));
 
     // Update only color
     //wgpuQueueWriteBuffer(m_queue, m_uniform_buffer, offsetof(MyUniforms, color), &my_uniforms.color, sizeof(MyUniforms::color));
     
     wgpuQueueWriteBuffer(m_queue, m_uniform_buffer, 0, &my_uniforms, sizeof(MyUniforms));
+
+    // Update only time
+    float time_2 = - my_uniforms.time;
+    wgpuQueueWriteBuffer(m_queue, m_uniform_buffer, m_uniform_stride + offsetof(MyUniforms, time), &time_2, sizeof(float));
 
     WGPUTextureView target_view = GetNextSurfaceViewData();
     
@@ -423,11 +435,17 @@ void Application::MainLoop()
 
     wgpuRenderPassEncoderSetPipeline(render_pass, m_pipeline);
 
+    std::uint32_t dynamic_offset = 0;
+
     wgpuRenderPassEncoderSetVertexBuffer(render_pass, 0, m_point_buffer, 0, wgpuBufferGetSize(m_point_buffer));
     wgpuRenderPassEncoderSetIndexBuffer(render_pass, m_index_buffer, WGPUIndexFormat_Uint16, 0, wgpuBufferGetSize(m_index_buffer));
+    
+    dynamic_offset = 0 * m_uniform_stride;
+    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, m_bind_group, 1, &dynamic_offset);
+    wgpuRenderPassEncoderDrawIndexed(render_pass, m_index_count, 1, 0, 0, 0);
 
-    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, m_bind_group, 0, nullptr);
-
+    dynamic_offset = 1 * m_uniform_stride;
+    wgpuRenderPassEncoderSetBindGroup(render_pass, 0, m_bind_group, 1, &dynamic_offset);
     wgpuRenderPassEncoderDrawIndexed(render_pass, m_index_count, 1, 0, 0, 0);
 
     wgpuRenderPassEncoderEnd(render_pass);
@@ -508,8 +526,9 @@ WGPURequiredLimits Application::GetWGPURequiredLimits(WGPUAdapter adapter) const
     // limits.
     required_limits.limits.minUniformBufferOffsetAlignment = supported_limits.limits.minUniformBufferOffsetAlignment;
     required_limits.limits.minStorageBufferOffsetAlignment = supported_limits.limits.minStorageBufferOffsetAlignment;
-
     
+    required_limits.limits.maxDynamicUniformBuffersPerPipelineLayout = 1;
+
     required_limits.limits.maxBindGroups = 1;
     required_limits.limits.maxUniformBuffersPerShaderStage= 1;
     required_limits.limits.maxUniformBufferBindingSize = 16 * sizeof(float);

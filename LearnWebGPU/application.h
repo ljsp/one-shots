@@ -53,4 +53,5 @@ private:
     WGPUBuffer          m_point_buffer;
     WGPUBuffer          m_index_buffer;
     WGPUBuffer          m_uniform_buffer;
+    std::uint32_t       m_uniform_stride{};
 };
