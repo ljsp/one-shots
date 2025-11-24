@@ -195,15 +195,15 @@ bool Application::InitializePipeline()
     vertex_attributes[0].shaderLocation = 0; // @location(0)
     vertex_attributes[1].shaderLocation = 1; // @location(1)
     // Means vec2f in the shader
-    vertex_attributes[0].format = WGPUVertexFormat_Float32x2;
+    vertex_attributes[0].format = WGPUVertexFormat_Float32x3;
     vertex_attributes[1].format = WGPUVertexFormat_Float32x3;
     // Index of the first element
     vertex_attributes[0].offset = 0;
-    vertex_attributes[1].offset = 2 * sizeof(float);
+    vertex_attributes[1].offset = 3 * sizeof(float);
 
     vertex_buffer_layout.attributeCount = vertex_attributes.size();
     vertex_buffer_layout.attributes     = vertex_attributes.data();
-    vertex_buffer_layout.arrayStride    = 5 * sizeof(float);
+    vertex_buffer_layout.arrayStride    = 6 * sizeof(float);
     vertex_buffer_layout.stepMode       = WGPUVertexStepMode_Vertex;
 
     WGPURenderPipelineDescriptor pipeline_descriptor{};
@@ -290,7 +290,7 @@ bool Application::InitializeBuffers()
 
     std::vector<std::uint16_t> index_data{};
 
-    ResourceManager::LoadGeometry(RESOURCE_DIR "/webgpu.txt", vertex_data, index_data);
+    ResourceManager::LoadGeometry(RESOURCE_DIR "/pyramid.txt", vertex_data, index_data, 3);
 
     index_data.resize((index_data.size() + 1) & ~1); // round up to the next multiple of 2
 
@@ -540,7 +540,7 @@ WGPURequiredLimits Application::GetWGPURequiredLimits(WGPUAdapter adapter) const
     // Maximum size of a buffer is 15 point of 5 float each
     required_limits.limits.maxBufferSize = 15 * 5 * sizeof(float);
     // Maximum stride between 2 consecutive vertices in the vertex buffer
-    required_limits.limits.maxVertexBufferArrayStride = 5 * sizeof(float);
+    required_limits.limits.maxVertexBufferArrayStride = 6 * sizeof(float);
     
 
     // There is a maximum of 3 float (color) forwarded from vertex to fragment shader

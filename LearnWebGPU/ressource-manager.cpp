@@ -35,7 +35,8 @@ bool ResourceManager::LoadGeometry
 (
     const std::filesystem::path& path,
     std::vector<float>& point_data,
-    std::vector<uint16_t>& index_data
+    std::vector<uint16_t>& index_data,
+    int dimensions
 )
 {
     std::ifstream file(path);
@@ -83,8 +84,8 @@ bool ResourceManager::LoadGeometry
         else if (currentSection == Section::Points)
         {
             std::istringstream iss(line);
-            // Get x, y, r, g, b
-            for (int i = 0; i < 5; ++i)
+            // Get x, y, z, r, g, b
+            for (int i = 0; i < dimensions + 3; ++i)
             {
                 iss >> value;
                 point_data.push_back(value);

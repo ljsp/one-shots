@@ -18,6 +18,7 @@ public:
     (
         const std::filesystem::path& path,
         std::vector<float>& point_data,
-        std::vector<uint16_t>& index_data
+        std::vector<uint16_t>& index_data,
+        int dimensions
     );
 };
