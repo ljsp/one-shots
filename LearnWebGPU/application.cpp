@@ -251,32 +251,62 @@ bool Application::InitializePipeline()
     fragment_state.targets                                  = &color_target;
 
     pipeline_descriptor.fragment                            = &fragment_state;
-    pipeline_descriptor.depthStencil                        = nullptr;
 
-    WGPUBindGroupLayoutEntry bind_group_layout_entry = GetDefaultWGPUBindGroupLayoutEntry();
-    bind_group_layout_entry.binding = 0; // in shader: @binding(0)
-    bind_group_layout_entry.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
+    WGPUDepthStencilState depth_stencil_state               = GetDefaultWGPUDepthStencilState();
+    depth_stencil_state.depthCompare                        = WGPUCompareFunction_Less;
+    depth_stencil_state.depthWriteEnabled                   = true;
+    WGPUTextureFormat depth_texture_format                  = WGPUTextureFormat_Depth24Plus;
+    depth_stencil_state.format                              = depth_texture_format;
+    depth_stencil_state.stencilReadMask                     = 0;
+    depth_stencil_state.stencilWriteMask                    = 0;
+    pipeline_descriptor.depthStencil                        = &depth_stencil_state;
 
-    bind_group_layout_entry.buffer.type = WGPUBufferBindingType_Uniform;
-    bind_group_layout_entry.buffer.minBindingSize = sizeof(MyUniforms);
-    bind_group_layout_entry.buffer.hasDynamicOffset = true;
+    // Create the depth texture
+    WGPUTextureDescriptor depth_texture_descriptor{};
+    depth_texture_descriptor.dimension                      = WGPUTextureDimension_2D;
+    depth_texture_descriptor.format                         = depth_texture_format;
+    depth_texture_descriptor.mipLevelCount                  = 1;
+    depth_texture_descriptor.sampleCount                    = 1;
+    depth_texture_descriptor.size                           = { 640, 480, 1 };
+    depth_texture_descriptor.usage                          = WGPUTextureUsage_RenderAttachment;
+    depth_texture_descriptor.viewFormatCount                = 1;
+    depth_texture_descriptor.viewFormats                    = &depth_texture_format;
+    m_depth_texture                                         = wgpuDeviceCreateTexture(m_device, &depth_texture_descriptor);
+
+    // Create the view of the depth texture manipulated by the rasterizer
+    WGPUTextureViewDescriptor depth_texture_view_descriptor{};
+    depth_texture_view_descriptor.aspect                    = WGPUTextureAspect_DepthOnly;
+    depth_texture_view_descriptor.baseArrayLayer            = 0;
+    depth_texture_view_descriptor.arrayLayerCount           = 1;
+    depth_texture_view_descriptor.baseMipLevel              = 0;
+    depth_texture_view_descriptor.mipLevelCount             = 1;
+    depth_texture_view_descriptor.dimension                 = WGPUTextureViewDimension_2D;
+    depth_texture_view_descriptor.format                    = depth_texture_format;
+    m_depth_texture_view                                    = wgpuTextureCreateView(m_depth_texture, &depth_texture_view_descriptor);
+
+    WGPUBindGroupLayoutEntry bind_group_layout_entry        = GetDefaultWGPUBindGroupLayoutEntry();
+    bind_group_layout_entry.binding                         = 0; // in shader: @binding(0)
+    bind_group_layout_entry.visibility                      = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
+
+    bind_group_layout_entry.buffer.type                     = WGPUBufferBindingType_Uniform;
+    bind_group_layout_entry.buffer.minBindingSize           = sizeof(MyUniforms);
+    bind_group_layout_entry.buffer.hasDynamicOffset         = true;
 
     WGPUBindGroupLayoutDescriptor bind_group_layout_descriptor{};
-    bind_group_layout_descriptor.nextInChain = nullptr;
-    bind_group_layout_descriptor.entryCount = 1;
-    bind_group_layout_descriptor.entries = &bind_group_layout_entry;
-    m_bind_group_layout = wgpuDeviceCreateBindGroupLayout(m_device, &bind_group_layout_descriptor);
-
+    bind_group_layout_descriptor.nextInChain                = nullptr;
+    bind_group_layout_descriptor.entryCount                 = 1;
+    bind_group_layout_descriptor.entries                    = &bind_group_layout_entry;
+    m_bind_group_layout                                     = wgpuDeviceCreateBindGroupLayout(m_device, &bind_group_layout_descriptor);
 
     WGPUPipelineLayoutDescriptor layout_descriptor{};
-    layout_descriptor.nextInChain = nullptr;
-    layout_descriptor.bindGroupLayoutCount = 1;
-    layout_descriptor.bindGroupLayouts = &m_bind_group_layout;
-    m_layout = wgpuDeviceCreatePipelineLayout(m_device, &layout_descriptor);
+    layout_descriptor.nextInChain                           = nullptr;
+    layout_descriptor.bindGroupLayoutCount                  = 1;
+    layout_descriptor.bindGroupLayouts                      = &m_bind_group_layout;
+    m_layout                                                = wgpuDeviceCreatePipelineLayout(m_device, &layout_descriptor);
 
     pipeline_descriptor.layout                              = m_layout;
 
-    m_pipeline = wgpuDeviceCreateRenderPipeline(m_device, &pipeline_descriptor);
+    m_pipeline                                              = wgpuDeviceCreateRenderPipeline(m_device, &pipeline_descriptor);
 
     wgpuShaderModuleRelease(shader_module);
 
@@ -334,7 +364,7 @@ bool Application::InitializeBuffers()
 
     my_uniforms =
     {
-        .color = { 1.0f, 0.0f, 0.4f, 1.0f },
+        .color = { 1.0f, 0.0f, 0.4f, 0.0f },
         .time = -1.0f,
     };
 
@@ -375,6 +405,9 @@ void Application::Terminate()
     wgpuBindGroupRelease(m_bind_group);
     wgpuPipelineLayoutRelease(m_layout);
     wgpuBindGroupLayoutRelease(m_bind_group_layout);
+    wgpuTextureViewRelease(m_depth_texture_view);
+    wgpuTextureDestroy(m_depth_texture);
+    wgpuTextureRelease(m_depth_texture);
     wgpuQueueRelease(m_queue);
     wgpuSurfaceUnconfigure(m_surface);
     wgpuSurfaceRelease(m_surface);
@@ -413,23 +446,45 @@ void Application::MainLoop()
     encoder_descriptor.label = "My command encoder";
     WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(m_device, &encoder_descriptor);
 
-    WGPURenderPassDescriptor render_pass_descriptor = {};
-    render_pass_descriptor.nextInChain              = nullptr;
+    WGPURenderPassDescriptor render_pass_descriptor{};
+    render_pass_descriptor.nextInChain                      = nullptr;
 
-    WGPURenderPassColorAttachment render_pass_color_attachment = {};
-    render_pass_color_attachment.view               = target_view;
-    render_pass_color_attachment.resolveTarget      = nullptr;
-    render_pass_color_attachment.loadOp             = WGPULoadOp_Clear;
-    render_pass_color_attachment.storeOp            = WGPUStoreOp_Store;
-    render_pass_color_attachment.clearValue         = WGPUColor{ 0.05, 0.05, 0.05, 1.0 };
+    WGPURenderPassColorAttachment render_pass_color_attachment{};
+    render_pass_color_attachment.view                       = target_view;
+    render_pass_color_attachment.resolveTarget              = nullptr;
+    render_pass_color_attachment.loadOp                     = WGPULoadOp_Clear;
+    render_pass_color_attachment.storeOp                    = WGPUStoreOp_Store;
+    render_pass_color_attachment.clearValue                 = WGPUColor{ 0.05, 0.05, 0.05, 1.0 };
 #ifndef WEBGPU_BACKEND_WGPU
-    render_pass_color_attachment.depthSlice         = WGPU_DEPTH_SLICE_UNDEFINED;
+    render_pass_color_attachment.depthSlice                 = WGPU_DEPTH_SLICE_UNDEFINED;
 #endif // !WEBGPU_BACKEND_WGPU
 
-    render_pass_descriptor.colorAttachmentCount     = 1;
-    render_pass_descriptor.colorAttachments         = &render_pass_color_attachment;
-    render_pass_descriptor.depthStencilAttachment   = nullptr;
-    render_pass_descriptor.timestampWrites          = nullptr;
+    WGPURenderPassDepthStencilAttachment render_pass_depth_stencil_attachment{};
+    render_pass_depth_stencil_attachment.view               = m_depth_texture_view;
+    
+    render_pass_depth_stencil_attachment.depthClearValue    = 1.0f;             // The initial value of the depth buffer, meaning "far"
+    render_pass_depth_stencil_attachment.depthLoadOp        = WGPULoadOp_Clear; // Operation settings comparable to the color attachment
+    render_pass_depth_stencil_attachment.depthStoreOp       = WGPUStoreOp_Store;
+    render_pass_depth_stencil_attachment.depthReadOnly      = false;            // we could turn off writing to the depth buffer globally here
+
+    // Stencil setup, mandatory but unused
+    render_pass_depth_stencil_attachment.stencilClearValue  = 0;
+    render_pass_depth_stencil_attachment.stencilLoadOp      = WGPULoadOp_Clear;
+    render_pass_depth_stencil_attachment.stencilStoreOp     = WGPUStoreOp_Store;
+
+#ifdef WEBGPU_BACKEND_DAWN
+    render_pass_depth_stencil_attachment.stencilLoadOp      = WGPULoadOp_Undefined;
+    render_pass_depth_stencil_attachment.stencilStoreOp     = WGPUStoreOp_Undefined;
+    //constexpr auto NaNf = std::numeric_limits<float>::quiet_NaN();
+    //render_pass_depth_stencil_attachment.depthClearValue    = NaNf;
+#endif // !WEBGPU_BACKEND_WGPU
+
+    render_pass_depth_stencil_attachment.stencilReadOnly    = true;
+
+    render_pass_descriptor.colorAttachmentCount             = 1;
+    render_pass_descriptor.colorAttachments                 = &render_pass_color_attachment;
+    render_pass_descriptor.depthStencilAttachment           = &render_pass_depth_stencil_attachment;
+    render_pass_descriptor.timestampWrites                  = nullptr;
 
     WGPURenderPassEncoder render_pass = wgpuCommandEncoderBeginRenderPass(encoder, &render_pass_descriptor);
 
@@ -517,7 +572,7 @@ WGPURequiredLimits Application::GetWGPURequiredLimits(WGPUAdapter adapter) const
     WGPUSupportedLimits supported_limits{};
     supported_limits.nextInChain = nullptr;
     wgpuAdapterGetLimits(adapter, &supported_limits);
-    
+
     WGPURequiredLimits required_limits{};
     required_limits.limits = GetDefaultLimits();
 
@@ -526,13 +581,17 @@ WGPURequiredLimits Application::GetWGPURequiredLimits(WGPUAdapter adapter) const
     // limits.
     required_limits.limits.minUniformBufferOffsetAlignment = supported_limits.limits.minUniformBufferOffsetAlignment;
     required_limits.limits.minStorageBufferOffsetAlignment = supported_limits.limits.minStorageBufferOffsetAlignment;
-    
+
     required_limits.limits.maxDynamicUniformBuffersPerPipelineLayout = 1;
 
     required_limits.limits.maxBindGroups = 1;
-    required_limits.limits.maxUniformBuffersPerShaderStage= 1;
+    required_limits.limits.maxUniformBuffersPerShaderStage = 1;
     required_limits.limits.maxUniformBufferBindingSize = 16 * sizeof(float);
-    
+
+    required_limits.limits.maxTextureDimension1D = 640;
+    required_limits.limits.maxTextureDimension2D = 480;
+    required_limits.limits.maxTextureArrayLayers = 1;
+
     // We use at most 2 vertex attribute for now
     required_limits.limits.maxVertexAttributes = 2;
     // We should also tell that we use 1 vertex buffers
@@ -541,7 +600,6 @@ WGPURequiredLimits Application::GetWGPURequiredLimits(WGPUAdapter adapter) const
     required_limits.limits.maxBufferSize = 15 * 5 * sizeof(float);
     // Maximum stride between 2 consecutive vertices in the vertex buffer
     required_limits.limits.maxVertexBufferArrayStride = 6 * sizeof(float);
-    
 
     // There is a maximum of 3 float (color) forwarded from vertex to fragment shader
     required_limits.limits.maxInterStageShaderComponents = 3;

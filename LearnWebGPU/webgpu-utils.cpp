@@ -316,6 +316,32 @@ WGPUBindGroupLayoutEntry GetDefaultWGPUBindGroupLayoutEntry()
     return binding_layout;
 }
 
+void SetDefault(WGPUStencilFaceState& stencil_face_state)
+{
+    stencil_face_state.compare      = WGPUCompareFunction_Always;
+    stencil_face_state.failOp       = WGPUStencilOperation_Keep;
+    stencil_face_state.depthFailOp  = WGPUStencilOperation_Keep;
+    stencil_face_state.passOp       = WGPUStencilOperation_Keep;
+}
+
+WGPUDepthStencilState GetDefaultWGPUDepthStencilState()
+{
+    WGPUDepthStencilState depth_stencil_state{};
+
+    depth_stencil_state.format = WGPUTextureFormat_Undefined;
+    depth_stencil_state.depthWriteEnabled = false;
+    depth_stencil_state.depthCompare = WGPUCompareFunction_Always;
+    depth_stencil_state.stencilReadMask = 0xFFFFFFFF;
+    depth_stencil_state.stencilWriteMask = 0xFFFFFFFF;
+    depth_stencil_state.depthBias = 0;
+    depth_stencil_state.depthBiasSlopeScale = 0;
+    depth_stencil_state.depthBiasClamp = 0;
+    SetDefault(depth_stencil_state.stencilFront);
+    SetDefault(depth_stencil_state.stencilBack);
+
+    return depth_stencil_state;
+}
+
 std::uint32_t CeilToNextMutliple(std::uint32_t value, std::uint32_t step)
 {
     uint32_t divide_and_ceil = value / step + (value % step == 0 ? 0 : 1);

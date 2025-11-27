@@ -39,6 +39,10 @@ WGPULimits GetDefaultLimits();
 
 WGPUBindGroupLayoutEntry GetDefaultWGPUBindGroupLayoutEntry();
 
+WGPUStencilFaceState GetDefaultWGPUStencilFaceState();
+
+WGPUDepthStencilState GetDefaultWGPUDepthStencilState();
+
 /**
  * Round 'value' up to the next multiplier of 'step'.
  */

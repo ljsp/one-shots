@@ -36,7 +36,7 @@ fn vs_main(in: VertexInput) -> VertexOutput
     );
 
     var out: VertexOutput;
-    out.position = vec4f(position.x, position.y * ratio, 0.0, 1.0);
+    out.position = vec4f(position.x, position.y * ratio, position.z * 0.5 + 0.5, 1.0);
     out.color = in.color;
     return out;
 }
