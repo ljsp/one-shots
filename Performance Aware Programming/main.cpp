@@ -1,25 +1,37 @@
 #include <vector>
 #include <cstddef>
 #include <fstream>
-#include <cstdint>
 #include <string_view>
 #include <ranges>
 #include <print>
-#include <bitset>
-#include <iostream>
+#include <expected>
+#include <span>
+#include <cctype> // for std::isprint
 
-std::ostream& operator<<(std::ostream& os, std::byte b)
+enum class ErrorCode 
 {
-    return os << std::bitset<8>(std::to_integer<int>(b));
+    FileNotFound,
+};
+
+void print_error(const ErrorCode& error) 
+{
+    switch (error) 
+    {
+        case ErrorCode::FileNotFound:
+            std::println("Error: File not found.");
+            break;
+        default:
+            std::println("Error: Unknown error.");
+            break;
+    }
 }
 
-std::vector<std::byte> load_binary(const std::string& path) 
+std::expected<std::vector<std::byte>, ErrorCode> load_binary_file(const std::string& path) 
 {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file) 
     {
-        std::cout << "Could not open file" << std::endl;
-        return {};
+        return std::unexpected(ErrorCode::FileNotFound);
     }
 
     std::streamsize size = file.tellg();
@@ -31,8 +43,9 @@ std::vector<std::byte> load_binary(const std::string& path)
     return buffer;
 }
 
-void print_mnemonics(const std::vector<std::byte>& binary_data) noexcept
+void print_mnemonics(std::span<const std::byte> binary_data) noexcept
 {
+    std::println("bits 16");
     for (const auto& chunk : binary_data | std::views::chunk(2)) 
     {
         if (chunk.size() < 2) 
@@ -64,52 +77,92 @@ void print_mnemonics(const std::vector<std::byte>& binary_data) noexcept
 
         if (direction) 
         {
-            std::cout << "mov " << reg_name << ", " << rm_name << std::endl;
+            std::println("mov {}, {}", reg_name, rm_name);
         } 
         else 
         {
-            std::cout << "mov " << rm_name << ", " << reg_name << std::endl;
+            std::println("mov {}, {}", rm_name, reg_name);
         }
     }
 }
 
-void print_binary(const std::vector<std::byte>& binary_data)
+void print_binary(std::span<const std::byte> binary_data)
 {
-    for (const auto& byte : binary_data) 
+    std::print(";Binary representation of the file: \n;");
+    for (const auto row : binary_data | std::views::chunk(8)) 
     {
-        std::cout << byte << " ";
-    }
-    std::cout << std::endl;
-}
-
-void print_hex(const std::vector<std::byte>& binary_data)
-{
-    for (size_t i = 0; i < binary_data.size(); ++i) 
-    {
-        std::cout << "0x" << std::hex << static_cast<int>(binary_data[i]) << " ";
-        if ((i + 1) % 16 == 0) 
+        for (const std::byte byte : row)
         {
-            std::cout << std::endl;
+            std::print("{:08b} ", std::to_integer<unsigned>(byte));
+        }
+
+        if (row.size() % 8 == 0) 
+        {
+            std::print("\n;");
         }
     }
-    std::cout << std::dec << std::endl;
+}
+
+void print_hex(std::span<const std::byte> data)
+{
+    std::println(";Hexadecimal representation of the file:");
+
+    std::size_t offset = 0;
+
+    for (auto row : data | std::views::chunk(16)) 
+    {
+        std::print(";{:06x}: ", offset);
+
+        for (const std::byte b : row) 
+        {
+            std::print("{:02x} ", std::to_integer<unsigned>(b));
+        }
+
+        if (row.size() < 16) 
+        {
+            for (std::size_t i = row.size(); i < 16; ++i) 
+            {
+                std::print("   "); // 3 spaces: "?? "
+            }
+        }
+
+        // Print ASCII representation
+        std::print(" |");
+
+        for (const std::byte b : row) 
+        {
+            unsigned char c = std::to_integer<unsigned char>(b);
+            std::print("{}", std::isprint(c) ? char(c) : '.');
+        }
+
+        std::println("|");
+
+        offset += row.size();
+    }
 }
 
 int main(int argc, char** argv)
 {
     if (argc == 1)
     {
-        std::cout << ("No file path given") << std::endl;
+        std::println("No file path given");
         return 0;
     }
+    
+    auto loaded_binary = load_binary_file(argv[1]);
+    if (!loaded_binary) 
+    {
+        print_error(loaded_binary.error());
+        return 1;
+    }
+    
+    auto& binary_data = loaded_binary.value();
 
-    std::cout << "; " << argv[1] << " disassembly : \n";
-    std::cout << "bits 16\n";
-
-    std::vector<std::byte> binary_data = load_binary(argv[1]);
-
-    // print_binary(binary_data);
-    // print_hex(binary_data);
+    std::println("; {} disassembly : \n", argv[1]);
+    print_binary(binary_data);
+    std::println("\n");
+    print_hex(binary_data);
+    std::println();
     print_mnemonics(binary_data);
 
     return 0;
