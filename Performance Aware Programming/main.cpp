@@ -18,8 +18,10 @@ enum class ErrorCode
 
 enum class Instruction
 {
-    MOV_Register_Or_Memory_To_Register = 0b100010,
+    MOV_Register_Or_Memory_To_Register  = 0b100010,
     MOV_Immediate_To_Register_Or_Memory = 0b1011,
+    MOV_Memory_To_Accumulator           = 0b1010000,
+
 };
 
 enum class ModeFieldEncoding
@@ -164,23 +166,47 @@ size_t decode_immediate_to_register_instruction(std::span<const std::byte> data,
     return nb_bytes_read;
 }
 
+size_t decode_memory_to_accumulator_instruction(std::span<const std::byte> data, size_t offset)
+{
+    size_t nb_bytes_read = 2;
+    std::byte byte_one = data[offset];
+    std::byte byte_two = data[offset + 1];
+    
+    bool w = std::to_integer<int>(byte_two) & 0x1;
+    
+    size_t address = std::to_integer<size_t>(byte_one);
+    
+    if (w)
+    {
+        std::byte byte_three = data[offset + 2];
+        address = std::to_integer<size_t>(byte_two) | (std::to_integer<int>(byte_three) << 8);
+        nb_bytes_read = 3;
+    }
+
+    std::println("mov ax, [{}]", address);
+
+    return nb_bytes_read;
+}
+
 void print_mnemonics(std::span<const std::byte> binary_data) noexcept
 {   
     std::println("bits 16");
     
     for (size_t offset = 0; offset < binary_data.size();) 
     {
-        std::byte byte_one = binary_data[offset];
+        int byte_one = std::to_integer<std::uint8_t>(binary_data[offset]);
 
-        int opcode = (std::to_integer<std::uint8_t>(byte_one) >> 2) & 0x3F;
-
-        if (opcode == std::to_underlying(Instruction::MOV_Register_Or_Memory_To_Register)) 
+        if (byte_one >> 2 == std::to_underlying(Instruction::MOV_Register_Or_Memory_To_Register)) 
         {
             offset += decode_register_memory_instruction(binary_data, offset);
         }
-        else if (opcode >> 2 == std::to_underlying(Instruction::MOV_Immediate_To_Register_Or_Memory))
+        else if (byte_one >> 4 == std::to_underlying(Instruction::MOV_Immediate_To_Register_Or_Memory))
         {
             offset += decode_immediate_to_register_instruction(binary_data, offset);
+        }
+        else if (byte_one >> 1 == std::to_underlying(Instruction::MOV_Memory_To_Accumulator))
+        {
+            offset += decode_memory_to_accumulator_instruction(binary_data, offset);
         }
         else 
         {
