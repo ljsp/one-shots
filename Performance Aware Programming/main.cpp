@@ -90,7 +90,19 @@ std::pair<std::string, size_t> decode_mode_field(std::span<const std::byte> bina
     std::byte byte_three = binary_data[offset + 2];
     if (mod == std::to_underlying(ModeFieldEncoding::Memory_Mode_8_Bit_Displacement))
     {
-        return { std::format("[{} + {}]", reg_adress_calculation[rm], std::to_integer<int>(byte_three)), 3};
+        std::string_view sign = "+";
+        std::int16_t displacement = 0;
+        if (std::to_integer<std::int16_t>(byte_three) >> 7)
+        {
+            sign = "";
+            std::byte complement{0b11111111};
+            displacement = std::to_integer<int16_t>(byte_three) | (std::to_integer<int16_t>(complement) << 8);
+        }
+        else
+        {
+            displacement = std::to_integer<int16_t>(byte_three);
+        }
+        return { std::format("[{} {} {}]", reg_adress_calculation[rm], sign, displacement), 3};
     }
 
     std::byte byte_four = binary_data[offset + 3];
@@ -101,10 +113,18 @@ std::pair<std::string, size_t> decode_mode_field(std::span<const std::byte> bina
         return { std::format("[{}]", displacement), 4 };
     }
 
-    if (mod == std::to_underlying(ModeFieldEncoding::Memory_Mode_16_Bit_Displacement))
-    {
-        return { std::format("[{} + {}]", reg_adress_calculation[rm], displacement), 4 };
-    }
+if (mod == std::to_underlying(ModeFieldEncoding::Memory_Mode_16_Bit_Displacement))
+{
+    // Combine bytes into a 16-bit signed displacement
+    std::int16_t displacement = static_cast<std::int16_t>(
+        std::to_integer<std::uint16_t>(byte_three) | 
+        (std::to_integer<std::uint16_t>(byte_four) << 8)
+    );
+    
+    std::string sign = (displacement >= 0) ? "+" : "";
+    
+    return { std::format("[{} {} {}]", reg_adress_calculation[rm], sign, displacement), 4 };
+}
 
     return {"", 2};
 }
@@ -210,7 +230,8 @@ void print_mnemonics(std::span<const std::byte> binary_data) noexcept
         }
         else 
         {
-            return; // Parse only MOV instructions
+            offset += 2;
+            //return; // Parse only MOV instructions
         }
     }
 }
