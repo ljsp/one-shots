@@ -168,20 +168,19 @@ void print_mnemonics(std::span<const std::byte> binary_data) noexcept
 {   
     std::println("bits 16");
     
-    int nb_bytes_read = 1;
-    for (size_t i = 0; i < binary_data.size();) 
+    for (size_t offset = 0; offset < binary_data.size();) 
     {
-        std::byte byte_one = binary_data[i];
+        std::byte byte_one = binary_data[offset];
 
         int opcode = (std::to_integer<std::uint8_t>(byte_one) >> 2) & 0x3F;
 
         if (opcode == std::to_underlying(Instruction::MOV_Register_Or_Memory_To_Register)) 
         {
-            i += decode_register_memory_instruction(binary_data, i);
+            offset += decode_register_memory_instruction(binary_data, offset);
         }
         else if (opcode >> 2 == std::to_underlying(Instruction::MOV_Immediate_To_Register_Or_Memory))
         {
-            i += decode_immediate_to_register_instruction(binary_data, i);
+            offset += decode_immediate_to_register_instruction(binary_data, offset);
         }
         else 
         {
@@ -253,17 +252,18 @@ int main(int argc, char** argv)
         return 0;
     }
     
-    auto loaded_binary = load_binary_file(argv[1]);
+    const std::string filename = argv[1];
+    auto loaded_binary = load_binary_file(filename);
     if (!loaded_binary) 
     {
         print_error(loaded_binary.error());
-        std::println("Given path : {}", argv[1]);
+        std::println("Given path : {}", filename);
         return 1;
     }
     
     std::vector<std::byte>& binary_data = loaded_binary.value();
 
-    std::println("; {} disassembly : \n", argv[1]);
+    std::println("; {} disassembly : \n", filename);
     print_binary(binary_data);
 
     std::println("\n");
