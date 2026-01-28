@@ -5,6 +5,8 @@
 #include <print>
 #include <expected>
 #include <cctype> // for std::isprint
+#include <string>
+#include <cstdint>
 #include <array>
 #include <utility>
 #include <vector>
@@ -116,7 +118,7 @@ std::pair<std::string, size_t> decode_mode_field(std::span<const std::byte> bina
     if (mod == std::to_underlying(ModeFieldEncoding::Memory_Mode_16_Bit_Displacement))
     {
         // Combine bytes into a 16-bit signed displacement
-        std::int16_t displacement = static_cast<std::int16_t>(
+        displacement = static_cast<std::int16_t>(
             std::to_integer<std::uint16_t>(byte_three) | 
             (std::to_integer<std::uint16_t>(byte_four) << 8)
         );
@@ -154,42 +156,44 @@ size_t decode_rm_to_reg_instruction(std::span<const std::byte> binary_data, size
         std::println("mov {}, {}", rm_name, reg_name);
     }
 
-	return nb_bytes_read;
+    return nb_bytes_read;
 }
 
 size_t decode_immediate_to_rm_instruction(std::span<const std::byte> binary_data, size_t offset)
 {
-    std::byte byte_one = binary_data[offset];
-    std::byte byte_two = binary_data[offset + 1];
+    std::byte byte_one   = binary_data[offset];
+    std::byte byte_two   = binary_data[offset + 1];
 
-    bool direction  =  std::to_integer<int>(byte_one) & 0x2;
     bool w          =  std::to_integer<int>(byte_one) & 0x1;
-
     int mod         = (std::to_integer<int>(byte_two) >> 6) & 0x3;
-    int reg         = 0;
     int rm          =  std::to_integer<int>(byte_two) & 0x7;
 
-    std::string_view reg_name = w ? reg_names_16bit[reg] : reg_names_8bit[reg];
-
-    auto [rm_name, nb_bytes_read] = decode_mode_field(binary_data, offset, 0, mod, rm);
-
-    nb_bytes_read = w ? 6 : 5;
-
-    if (direction)
+    auto [rm_name, nb_bytes_read] = decode_mode_field(binary_data, offset, false, mod, rm);
+    
+    std::byte byte_low  = binary_data[offset + nb_bytes_read];
+    std::string reg_name = "";
+    if (w)
     {
-        std::println("mov {}, {}", reg_name, rm_name);
+        std::byte byte_high = binary_data[offset + nb_bytes_read + 1];
+        int immediate = std::to_integer<int>(byte_low) | (std::to_integer<int>(byte_high) << 8);
+        reg_name = std::format("word {}", immediate);
+        nb_bytes_read += 2;
     }
     else
     {
-        std::println("mov {}, {}", rm_name, reg_name);
+        int immediate = std::to_integer<std::uint8_t>(byte_low);
+        reg_name = std::format("byte {}", immediate);
+        nb_bytes_read += 1;
     }
 
-	return nb_bytes_read;
+    std::println("mov {}, {}", rm_name, reg_name);
+
+    return nb_bytes_read;
 }
 
 size_t decode_immediate_to_register_instruction(std::span<const std::byte> data, size_t offset)
 {
-	size_t nb_bytes_read = 0;
+    size_t nb_bytes_read = 0;
     std::byte byte_one = data[offset];
     std::byte byte_two = data[offset + 1];
 
@@ -230,7 +234,7 @@ size_t decode_memory_and_accumulator_instruction(std::span<const std::byte> data
     if (w)
     {
         std::byte byte_three = data[offset + 2];
-        address = std::to_integer<size_t>(byte_two) | (std::to_integer<int>(byte_three) << 8);
+        address = std::to_integer<int>(byte_two) | (std::to_integer<int>(byte_three) << 8);
         nb_bytes_read = 3;
     }
 
@@ -252,28 +256,28 @@ void print_mnemonics(std::span<const std::byte> binary_data) noexcept
     
     for (size_t offset = 0; offset < binary_data.size();) 
     {
+        using enum Instruction;
         int byte_one = std::to_integer<std::uint8_t>(binary_data[offset]);
 
-        if (byte_one >> 2 == std::to_underlying(Instruction::MOV_RM_To_Reg)) 
+        if (byte_one >> 2 == std::to_underlying(MOV_RM_To_Reg)) 
         {
             offset += decode_rm_to_reg_instruction(binary_data, offset);
         }
-        else if (byte_one >> 1 == std::to_underlying(Instruction::MOV_Immediate_To_RM))
+        else if (byte_one >> 1 == std::to_underlying(MOV_Immediate_To_RM))
         {
             offset += decode_immediate_to_rm_instruction(binary_data, offset);
         }
-        else if (byte_one >> 4 == std::to_underlying(Instruction::MOV_Immediate_To_Reg))
+        else if (byte_one >> 4 == std::to_underlying(MOV_Immediate_To_Reg))
         {
             offset += decode_immediate_to_register_instruction(binary_data, offset);
         }
-        else if (byte_one >> 2 == std::to_underlying(Instruction::MOV_Memory_And_Accumulator))
+        else if (byte_one >> 2 == std::to_underlying(MOV_Memory_And_Accumulator))
         {
             offset += decode_memory_and_accumulator_instruction(binary_data, offset);
         }
         else 
         {
-            offset += 2;
-            //return; // Parse only MOV instructions
+            return; // Parse only MOV instructions
         }
     }
 }
