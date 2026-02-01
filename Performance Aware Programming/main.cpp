@@ -24,6 +24,16 @@ enum class Instruction
     MOV_Immediate_To_RM         = 0b1100011,
     MOV_Immediate_To_Reg        = 0b1011,
     MOV_Memory_And_Accumulator  = 0b101000,
+    ADD_SUB_CMP_RM_And_Reg      = 0b000000,
+    ADD_SUB_CMP_And_Immediate   = 0b100000,
+    ADD_SUB_CMP_And_Accumulator = 0b0000010,
+};
+
+enum class SubInstruction
+{
+    ADD = 0b000,
+    SUB = 0b101,
+    CMP = 0b111
 };
 
 enum class ModeFieldEncoding
@@ -136,7 +146,7 @@ size_t decode_rm_to_reg_instruction(std::span<const std::byte> binary_data, size
     std::byte byte_one = binary_data[offset];
     std::byte byte_two = binary_data[offset + 1];
 
-    bool direction  =  std::to_integer<int>(byte_one) & 0x2;
+    bool d          =  std::to_integer<int>(byte_one) & 0x2;
     bool w          =  std::to_integer<int>(byte_one) & 0x1;
 
     int mod         = (std::to_integer<int>(byte_two) >> 6) & 0x3;
@@ -147,7 +157,7 @@ size_t decode_rm_to_reg_instruction(std::span<const std::byte> binary_data, size
 
     const auto& [rm_name, nb_bytes_read] = decode_mode_field(binary_data, offset, w, mod, rm);
 
-    if (direction)
+    if (d)
     {
         std::println("mov {}, {}", reg_name, rm_name);
     }
@@ -168,25 +178,26 @@ size_t decode_immediate_to_rm_instruction(std::span<const std::byte> binary_data
     int mod         = (std::to_integer<int>(byte_two) >> 6) & 0x3;
     int rm          =  std::to_integer<int>(byte_two) & 0x7;
 
+
     auto [rm_name, nb_bytes_read] = decode_mode_field(binary_data, offset, false, mod, rm);
-    
+
     std::byte byte_low  = binary_data[offset + nb_bytes_read];
-    std::string reg_name = "";
+    std::string immediate_name = "";
     if (w)
     {
         std::byte byte_high = binary_data[offset + nb_bytes_read + 1];
         int immediate = std::to_integer<int>(byte_low) | (std::to_integer<int>(byte_high) << 8);
-        reg_name = std::format("word {}", immediate);
+        immediate_name = std::format("word {}", immediate);
         nb_bytes_read += 2;
     }
     else
     {
         int immediate = std::to_integer<std::uint8_t>(byte_low);
-        reg_name = std::format("byte {}", immediate);
+        immediate_name = std::format("byte {}", immediate);
         nb_bytes_read += 1;
     }
 
-    std::println("mov {}, {}", rm_name, reg_name);
+    std::println("mov {}, {}", rm_name, immediate_name);
 
     return nb_bytes_read;
 }
@@ -250,14 +261,152 @@ size_t decode_memory_and_accumulator_instruction(std::span<const std::byte> data
     return nb_bytes_read;
 }
 
+size_t decode_add_sub_cmp_rm_and_reg_instruction(std::span<const std::byte> data, size_t offset)
+{
+    std::byte byte_one = data[offset];
+    std::byte byte_two = data[offset + 1];
+
+    auto optype = static_cast< SubInstruction >(byte_one >> 3);
+
+    std::string_view op = "";
+    switch (optype)
+    {
+        using enum SubInstruction;
+        case ADD: op = "add"; break;
+        case SUB: op = "sub"; break;
+        case CMP: op = "cmp"; break;
+    }
+
+    bool d = std::to_integer<int>(byte_one) & 0x2;
+    bool w = std::to_integer<int>(byte_one) & 0x1;
+
+    int mod = (std::to_integer<int>(byte_two) >> 6) & 0x3;
+    int reg = (std::to_integer<int>(byte_two) >> 3) & 0x7;
+    int rm  = std::to_integer<int>(byte_two) & 0x7;
+
+    std::string_view reg_name = w ? reg_names_16bit[reg] : reg_names_8bit[reg];
+
+    const auto& [rm_name, nb_bytes_read] = decode_mode_field(data, offset, w, mod, rm);
+
+    if (d)
+    {
+        std::println("{} {}, {}", op, reg_name, rm_name);
+    }
+    else
+    {
+        std::println("{} {}, {}", op, rm_name, reg_name);
+    }
+
+    return nb_bytes_read;
+}
+
+size_t decode_add_sub_cmp_and_immediate_instruction(std::span<const std::byte> data, size_t offset)
+{
+    int byte_one = std::to_integer<int>(data[offset]);
+    int byte_two = std::to_integer<int>(data[offset + 1]);
+
+    auto optype = static_cast<SubInstruction>(byte_two >> 3 & 0b00111);
+
+    std::string_view op = "";
+    switch (optype)
+    {
+        using enum SubInstruction;
+        case ADD: op = "add"; break;
+        case SUB: op = "sub"; break;
+        case CMP: op = "cmp"; break;
+    }
+
+    bool w  = byte_one      & 0x1;
+    bool s  = byte_one      & 0x2;
+    int mod = byte_two >> 6 & 0x3;
+    int rm  = byte_two      & 0x7;
+
+    auto [rm_name, nb_bytes_read] = decode_mode_field(data, offset, w, mod, rm);
+
+
+    if (mod != std::to_underlying(ModeFieldEncoding::Register_Mode))
+    {
+        std::string_view size_specifier = w ? "word" : "byte";
+        rm_name = std::format("{} {}", size_specifier, rm_name);
+    }
+
+    int immediate = std::to_integer<int>(data[offset + nb_bytes_read]);
+    std::string reg_name = std::format("{}", immediate);
+    nb_bytes_read += 1;
+
+    std::println("{} {}, {}", op, rm_name, reg_name, nb_bytes_read);
+
+    return nb_bytes_read;
+}
+
+size_t decode_add_sub_cmp_immediate_to_accumulator_instruction(std::span<const std::byte> data, size_t offset)
+{
+    size_t nb_bytes_read = 2;
+    std::byte byte_one = data[offset];
+    std::byte byte_two = data[offset + 1];
+
+    auto optype = static_cast<SubInstruction>(byte_one >> 3);
+
+    std::string_view op = "";
+    switch (optype)
+    {
+        using enum SubInstruction;
+        case ADD: op = "add"; break;
+        case SUB: op = "sub"; break;
+        case CMP: op = "cmp"; break;
+    }
+
+    bool w = std::to_integer<int>(byte_one) & 0x1;
+    bool d = std::to_integer<int>(byte_one) & 0x2;
+
+    size_t immediate;
+
+    std::string accumulator_name = w ? "ax" : "al";
+
+    if (w)
+    {
+        std::byte byte_three = data[offset + 2];
+        immediate = std::to_integer<int>(byte_two) | (std::to_integer<int>(byte_three) << 8);
+        nb_bytes_read = 3;
+    }
+    else
+    {
+        std::string_view sign = "+";
+        if (std::to_integer<std::int16_t>(byte_two) >> 7)
+        {
+            sign = "";
+            std::byte complement{ 0b11111111 };
+            immediate = std::to_integer<int16_t>(byte_two) | (std::to_integer<int16_t>(complement) << 8);
+        }
+        else
+        {
+            immediate = std::to_integer<int16_t>(byte_two);
+        }
+        nb_bytes_read = 2;
+    }
+
+    if (d)
+    {
+        std::println("{} {}, {}", op, immediate, accumulator_name);
+    }
+    else
+    {
+        std::println("{} {}, {}", op, accumulator_name, immediate);
+    }
+
+    return nb_bytes_read;
+}
+
 void print_mnemonics(std::span<const std::byte> binary_data) noexcept
 {   
     std::println("bits 16");
+
     
     for (size_t offset = 0; offset < binary_data.size();) 
     {
         using enum Instruction;
         int byte_one = std::to_integer<std::uint8_t>(binary_data[offset]);
+        int type = byte_one & 0b11000111;
 
         if (byte_one >> 2 == std::to_underlying(MOV_RM_To_Reg)) 
         {
@@ -274,6 +423,18 @@ void print_mnemonics(std::span<const std::byte> binary_data) noexcept
         else if (byte_one >> 2 == std::to_underlying(MOV_Memory_And_Accumulator))
         {
             offset += decode_memory_and_accumulator_instruction(binary_data, offset);
+        }
+        else if ((byte_one >> 2 & 0b110001) == std::to_underlying(ADD_SUB_CMP_RM_And_Reg))
+        {
+            offset += decode_add_sub_cmp_rm_and_reg_instruction(binary_data, offset);
+        }
+        else if (byte_one >> 2 == std::to_underlying(ADD_SUB_CMP_And_Immediate))
+        {
+            offset += decode_add_sub_cmp_and_immediate_instruction(binary_data, offset);
+        }
+        else if ((byte_one >> 1 & 0b1100011) == std::to_underlying(ADD_SUB_CMP_And_Accumulator))
+        {
+            offset += decode_add_sub_cmp_immediate_to_accumulator_instruction(binary_data, offset);
         }
         else 
         {
@@ -356,11 +517,11 @@ int main(int argc, char** argv)
     
     std::vector<std::byte>& binary_data = loaded_binary.value();
 
-    std::println("; {} disassembly : \n", filename);
-    print_binary(binary_data);
+    //std::println("; {} disassembly : \n", filename);
+    //print_binary(binary_data);
 
-    std::println("\n");
-    print_hex(binary_data);
+    //std::println("\n");
+    //print_hex(binary_data);
     
     std::println();
     print_mnemonics(binary_data);
